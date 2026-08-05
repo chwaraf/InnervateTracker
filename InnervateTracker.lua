@@ -49,7 +49,7 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Session time header
+-- Header session time
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 title:SetPoint("TOPLEFT", 6, -4)
@@ -65,13 +65,14 @@ resetBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetText("Reset counters and session time", 1, 1, 1)
     GameTooltip:Show()
 end)
-resetBtn:SetScript("OnLeave", function(self)
-    GameTooltip:Hide()
-end)
+resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 f.lines = {}
 local druidList = {}
 local isInitialized = false
+
+-- Forward declaration of UpdateDisplay
+local UpdateDisplay
 
 local function GetShortName(fullName)
     if not fullName then return "" end
@@ -83,17 +84,12 @@ local function FormatSessionTime()
     local diff = math.max(0, time() - InnervateTrackerDB.startTime)
     local hrs = math.floor(diff / 3600)
     local mins = math.floor((diff % 3600) / 60)
-    if hrs > 0 then
-        return string.format("Session: %dh%dm", hrs, mins)
-    else
-        return string.format("Session: %dm", mins)
-    end
+    return hrs > 0 and string.format("Session: %dh%dm", hrs, mins) or string.format("Session: %dm", mins)
 end
 
 local function ResetData()
     if not InnervateTrackerDB then return end
     InnervateTrackerDB.casts = {}
-    InnervateTrackerDB.receivers = {}
     InnervateTrackerDB.history = {}
     InnervateTrackerDB.activeCDs = {}
     InnervateTrackerDB.startTime = time()
@@ -136,23 +132,22 @@ local function CreateVisualRow(index)
 
     row:SetScript("OnEnter", function(self)
         if not self.druidName then return end
-        local druidName = self.druidName
-        local shortDruid = GetShortName(druidName)
+        local shortDruid = GetShortName(self.druidName)
 
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
 
-        local totalCasts = (InnervateTrackerDB and InnervateTrackerDB.casts and (InnervateTrackerDB.casts[druidName] or InnervateTrackerDB.casts[shortDruid])) or 0
+        local totalCasts = InnervateTrackerDB and InnervateTrackerDB.casts and InnervateTrackerDB.casts[shortDruid] or 0
         GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.5, 0)
 
-        local cdData = InnervateTrackerDB and InnervateTrackerDB.activeCDs and (InnervateTrackerDB.activeCDs[druidName] or InnervateTrackerDB.activeCDs[shortDruid])
+        local cdData = InnervateTrackerDB and InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[shortDruid]
         if cdData and cdData.target then
             GameTooltip:AddLine("Last Innervate for: " .. GetShortName(cdData.target), 0.2, 1, 0.2)
         end
 
         GameTooltip:AddLine(" ")
 
-        local history = InnervateTrackerDB and InnervateTrackerDB.history and (InnervateTrackerDB.history[druidName] or InnervateTrackerDB.history[shortDruid])
+        local history = InnervateTrackerDB and InnervateTrackerDB.history and InnervateTrackerDB.history[shortDruid]
         if history and next(history) then
             GameTooltip:AddLine("Received Innervate:", 1, 1, 1)
             for target, count in pairs(history) do
@@ -164,9 +159,7 @@ local function CreateVisualRow(index)
         GameTooltip:Show()
     end)
 
-    row:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     f.lines[index] = row
     return row
@@ -174,52 +167,30 @@ end
 
 local function ScanRaidRoster()
     table.wipe(druidList)
-    local numGroup = GetNumGroupMembers and GetNumGroupMembers() or (IsInRaid and IsInRaid() and GetNumRaidMembers() or GetNumPartyMembers())
-    local isRaid = IsInRaid and IsInRaid()
-
-    if numGroup and numGroup > 0 then
-        if isRaid then
-            for i = 1, numGroup do
-                local unit = "raid" .. i
-                local name, server = UnitName(unit)
-                if name then
-                    local fullName = (server and server ~= "") and (name .. "-" .. server) or name
-                    local _, class = UnitClass(unit)
-                    if class == "DRUID" then
-                        druidList[fullName] = true
-                        druidList[name] = fullName
-                    end
+    local numGroup = GetNumGroupMembers()
+    if numGroup > 0 then
+        local prefix = IsInRaid() and "raid" or "party"
+        for i = 1, numGroup do
+            local unit = (not IsInRaid() and i == numGroup) and "player" or (prefix .. i)
+            local name = UnitName(unit)
+            if name then
+                local shortName = GetShortName(name)
+                local _, class = UnitClass(unit)
+                if class == "DRUID" then
+                    druidList[shortName] = true
                 end
-            end
-        else
-            for i = 1, numGroup - 1 do
-                local unit = "party" .. i
-                local name, server = UnitName(unit)
-                if name then
-                    local fullName = (server and server ~= "") and (name .. "-" .. server) or name
-                    local _, class = UnitClass(unit)
-                    if class == "DRUID" then
-                        druidList[fullName] = true
-                        druidList[name] = fullName
-                    end
-                end
-            end
-            local _, class = UnitClass("player")
-            if class == "DRUID" then
-                local name = UnitName("player")
-                if name then druidList[name] = name end
             end
         end
     else
         local _, class = UnitClass("player")
         if class == "DRUID" then
             local name = UnitName("player")
-            if name then druidList[name] = name end
+            if name then druidList[GetShortName(name)] = true end
         end
     end
 end
 
-function UpdateDisplay()
+UpdateDisplay = function()
     if not isInitialized or not InnervateTrackerDB then return end
     title:SetText(FormatSessionTime())
 
@@ -228,28 +199,22 @@ function UpdateDisplay()
     local currentTime = time()
 
     local sortedDruids = {}
-    local seen = {}
-    for key, val in pairs(druidList) do
-        local displayName = (type(val) == "string") and val or key
-        if not seen[displayName] then
-            seen[displayName] = true
-            table.insert(sortedDruids, displayName)
-        end
+    for name in pairs(druidList) do
+        table.insert(sortedDruids, name)
     end
     table.sort(sortedDruids)
 
     for _, name in ipairs(sortedDruids) do
         local row = f.lines[index] or CreateVisualRow(index)
-        local shortName = GetShortName(name)
         row.druidName = name
 
-        local cdData = InnervateTrackerDB.activeCDs and (InnervateTrackerDB.activeCDs[name] or InnervateTrackerDB.activeCDs[shortName])
+        local cdData = InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[name]
         local elapsed = cdData and (currentTime - cdData.castTime) or 9999
         local remainingCD = INNERVATE_CD - elapsed
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
-        local casts = (InnervateTrackerDB and InnervateTrackerDB.casts and (InnervateTrackerDB.casts[name] or InnervateTrackerDB.casts[shortName])) or 0
+        local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
 
-        row.text:SetText(string.format("%s (%d)", shortName, casts))
+        row.text:SetText(string.format("%s (%d)", name, casts))
 
         if remainingBuff > 0 then
             -- Active Buff (0-20s)
@@ -282,7 +247,6 @@ function UpdateDisplay()
                     cdData.soundPlayed = true
                 end
                 InnervateTrackerDB.activeCDs[name] = nil
-                InnervateTrackerDB.activeCDs[shortName] = nil
             end
             row.bar:Hide()
             row.readyText:SetText("|cff30ff30Ready|r")
@@ -315,7 +279,6 @@ local function InitDB()
 
     if type(InnervateTrackerDB) ~= "table" then InnervateTrackerDB = {} end
     if not InnervateTrackerDB.casts then InnervateTrackerDB.casts = {} end
-    if not InnervateTrackerDB.receivers then InnervateTrackerDB.receivers = {} end
     if not InnervateTrackerDB.history then InnervateTrackerDB.history = {} end
     if not InnervateTrackerDB.activeCDs then InnervateTrackerDB.activeCDs = {} end
     if InnervateTrackerDB.soundAlert == nil then InnervateTrackerDB.soundAlert = true end
@@ -380,15 +343,11 @@ f:SetScript("OnEvent", function(self, event, ...)
 
         if subEvent == "SPELL_CAST_SUCCESS" and (spellID == 29166 or (spellName and INNERVATE_NAME and spellName == INNERVATE_NAME)) then
             if sourceName then
-                local shortSource = GetShortName(sourceName)
-                if druidList[sourceName] or druidList[shortSource] then
-                    local casterName = shortSource
+                local casterName = GetShortName(sourceName)
+                if druidList[casterName] then
                     local targetName = destName and GetShortName(destName) or "Unknown"
 
                     InnervateTrackerDB.casts[casterName] = (InnervateTrackerDB.casts[casterName] or 0) + 1
-                    if destName then
-                        InnervateTrackerDB.receivers[targetName] = (InnervateTrackerDB.receivers[targetName] or 0) + 1
-                    end
 
                     InnervateTrackerDB.history[casterName] = InnervateTrackerDB.history[casterName] or {}
                     InnervateTrackerDB.history[casterName][targetName] = (InnervateTrackerDB.history[casterName][targetName] or 0) + 1
