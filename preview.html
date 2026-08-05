@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Innervate Tracker - WoW Addon Simulator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background: #0d0f12;
+    color: #e0e0e0;
+    font-family: 'Friz Quadrata', 'Arial Narrow', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    padding: 20px;
+    gap: 20px;
+  }
+
+  h1 {
+    font-size: 18px;
+    color: #f82;
+    text-shadow: 1px 1px 2px #000;
+  }
+
+  /* WoW UI Container Frame */
+  .wow-screen {
+    position: relative;
+    width: 600px;
+    height: 380px;
+    background: #15181e url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" opacity="0.05"><rect width="20" height="20" fill="%23fff"/><rect x="20" y="20" width="20" height="20" fill="%23fff"/></svg>');
+    border: 2px solid #3a3f4b;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+
+  .screen-watermark {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    font-size: 11px;
+    color: #555;
+    pointer-events: none;
+  }
+
+  /* Innervate Tracker Main Frame */
+  #trackerFrame {
+    position: absolute;
+    bottom: 50px; /* Anchored at bottom for growUp compatibility */
+    left: 215px;
+    width: 170px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 2px solid #888;
+    box-shadow: inset 0 0 5px #000, 0 4px 12px rgba(0,0,0,0.9);
+    cursor: move;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #trackerFrame.grow-up {
+    flex-direction: column-reverse;
+  }
+
+  /* Frame Header */
+  .tracker-header {
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px;
+    position: relative;
+    background: rgba(0,0,0,0.2);
+  }
+
+  .btn-wow {
+    width: 16px;
+    height: 14px;
+    background: linear-gradient(#4a4a4a, #222);
+    border: 1px solid #777;
+    color: #fff;
+    font-size: 10px;
+    font-weight: bold;
+    line-height: 12px;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .btn-wow:hover { background: linear-gradient(#666, #333); border-color: #aaa; }
+  .btn-wow:active { background: #111; }
+
+  .session-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ffd100;
+    text-shadow: 1px 1px 1px #000, -1px -1px 1px #000;
+    flex-grow: 1;
+    margin-left: 6px;
+  }
+
+  /* Rows Container */
+  .rows-container {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 4px 4px 4px;
+    gap: 3px;
+  }
+
+  .rows-container.grow-up {
+    flex-direction: column-reverse;
+  }
+
+  /* Druid Row */
+  .druid-row {
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    cursor: pointer;
+  }
+  .druid-row:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .druid-name {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ff7d0a; /* Druid Orange */
+    text-shadow: 1px 1px 1px #000, -1px -1px 1px #000, 0 0 2px #000;
+    white-space: nowrap;
+  }
+
+  .status-ready {
+    font-size: 11px;
+    font-weight: bold;
+    color: #30ff30;
+    text-shadow: 1px 1px 1px #000;
+  }
+
+  /* Status Bar */
+  .status-bar {
+    width: 72px;
+    height: 12px;
+    background: rgba(40, 10, 10, 0.7);
+    border: 1px solid #222;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    width: 100%;
+    transition: width 0.1s linear;
+  }
+
+  .bar-fill.active-buff {
+    background: linear-gradient(#1eb3ff, #0066cc);
+  }
+
+  .bar-fill.cooldown {
+    background: linear-gradient(#ff4d4d, #990000);
+  }
+
+  .bar-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 1px 1px 1px #000, -1px -1px 1px #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* WoW GameTooltip */
+  #gameTooltip {
+    position: absolute;
+    display: none;
+    background: rgba(10, 10, 20, 0.92);
+    border: 2px solid #555;
+    padding: 8px 10px;
+    border-radius: 4px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    pointer-events: none;
+    z-index: 100;
+    min-width: 170px;
+  }
+
+  .tt-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #ff7d0a;
+  }
+  .tt-last {
+    font-size: 11px;
+    color: #30ff30;
+    margin-top: 2px;
+  }
+  .tt-divider {
+    height: 1px;
+    background: #444;
+    margin: 5px 0;
+  }
+  .tt-header {
+    font-size: 11px;
+    font-weight: bold;
+    color: #fff;
+  }
+  .tt-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #ccc;
+    margin-top: 2px;
+  }
+  .tt-line span.count {
+    color: #30ff30;
+    font-weight: bold;
+  }
+
+  /* Control Panel */
+  .control-panel {
+    width: 600px;
+    background: #1c2029;
+    border: 1px solid #2e3442;
+    border-radius: 6px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffc107;
+  }
+
+  .controls-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .cmd-btn {
+    background: #2b3242;
+    color: #e0e0e0;
+    border: 1px solid #455066;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .cmd-btn:hover { background: #3b4458; border-color: #61738e; }
+  .cmd-btn:active { background: #1f2430; }
+
+  .log-box {
+    background: #0d0f12;
+    border: 1px solid #222;
+    height: 65px;
+    padding: 6px;
+    font-family: monospace;
+    font-size: 11px;
+    color: #00ff66;
+    overflow-y: auto;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>InnervateTracker — WoW TBC Addon Interactive Simulator</h1>
+
+  <div class="wow-screen">
+    <div class="screen-watermark">World of Warcraft TBC Anniversary — Interactive Addon Preview</div>
+
+    <!-- MAIN TRACKER FRAME -->
+    <div id="trackerFrame">
+      <div id="headerBar" class="tracker-header">
+        <button id="growBtn" class="btn-wow" title="Toggle growth direction">v</button>
+        <div id="sessionTitle" class="session-title">S: 0m</div>
+        <button id="resetBtn" class="btn-wow" title="Reset stats">R</button>
+      </div>
+      <div id="rowsContainer" class="rows-container">
+        <!-- Druid rows injected dynamically -->
+      </div>
+    </div>
+
+    <!-- GAMETOOLTIP -->
+    <div id="gameTooltip">
+      <div id="ttTitle" class="tt-title">Elune (Casts: 0)</div>
+      <div id="ttLast" class="tt-last">Last Innervate for: PriestA</div>
+      <div class="tt-divider"></div>
+      <div class="tt-header">Received Innervate:</div>
+      <div id="ttLines"></div>
+    </div>
+  </div>
+
+  <!-- CONTROL PANEL -->
+  <div class="control-panel">
+    <div class="panel-title">Interactive Simulation Controls</div>
+    <div class="controls-grid">
+      <button class="cmd-btn" onclick="castInnervate('Elune', 'PriestA')">⚡ Cast Innervate: Elune ➔ PriestA</button>
+      <button class="cmd-btn" onclick="castInnervate('Malfurion', 'MageB')">⚡ Cast Innervate: Malfurion ➔ MageB</button>
+      <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth Direction (^ / v)</button>
+      <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Raid Group</button>
+      <button class="cmd-btn" onclick="reloadUI()">🔄 Simulate /reload (SavedVariables Test)</button>
+      <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
+    </div>
+    <div id="logBox" class="log-box">> Addon loaded. SavedVariables (InnervateTrackerDB) active.</div>
+  </div>
+
+<script>
+  // Addon State (Simulates InnervateTrackerDB)
+  let db = {
+    startTime: Math.floor(Date.now() / 1000),
+    growUp: false,
+    casts: { 'Elune': 1, 'Malfurion': 0 },
+    history: {
+      'Elune': { 'PriestA': 1 }
+    },
+    activeCDs: {}
+  };
+
+  const INNERVATE_CD = 360;      // 6 min
+  const INNERVATE_BUFF_DUR = 20; // 20s
+
+  let druidsInGroup = ['Elune', 'Malfurion', 'Broll'];
+  let isInGroup = true;
+
+  // Dragging logic for tracker frame
+  const trackerFrame = document.getElementById('trackerFrame');
+  let isDragging = false, startX, startY, initialLeft, initialTop;
+
+  trackerFrame.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    initialLeft = trackerFrame.offsetLeft;
+    initialTop = trackerFrame.offsetTop;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  function onMouseMove(e) {
+    if (!isDragging) return;
+    trackerFrame.style.left = (initialLeft + e.clientX - startX) + 'px';
+    trackerFrame.style.top = (initialTop + e.clientY - startY) + 'px';
+  }
+
+  function onMouseUp() {
+    isDragging = false;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  }
+
+  function log(msg) {
+    const box = document.getElementById('logBox');
+    box.innerHTML += '<br>> ' + msg;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function getSessionTimeStr() {
+    const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - db.startTime);
+    const mins = Math.floor(elapsed / 60);
+    const hrs = Math.floor(mins / 60);
+    if (hrs > 0) return `S: ${hrs}h${mins % 60}m`;
+    return `S: ${mins}m`;
+  }
+
+  function renderTracker() {
+    // Header layout & Growth orientation
+    document.getElementById('sessionTitle').innerText = getSessionTimeStr();
+    document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
+
+    trackerFrame.className = db.growUp ? 'grow-up' : '';
+
+    const container = document.getElementById('rowsContainer');
+    container.className = 'rows-container' + (db.growUp ? ' grow-up' : '');
+
+    // Get list of druids to display (group members + session history druids)
+    let druidSet = new Set();
+    if (isInGroup) {
+      druidsInGroup.forEach(d => druidSet.add(d));
+    }
+    Object.keys(db.casts).forEach(d => druidSet.add(d));
+    Object.keys(db.activeCDs).forEach(d => druidSet.add(d));
+
+    const sortedDruids = Array.from(druidSet).sort();
+    const now = Math.floor(Date.now() / 1000);
+
+    container.innerHTML = '';
+
+    sortedDruids.forEach(druid => {
+      const casts = db.casts[druid] || 0;
+      const cdData = db.activeCDs[druid];
+      const elapsed = cdData ? (now - cdData.castTime) : 9999;
+      const remBuff = INNERVATE_BUFF_DUR - elapsed;
+      const remCD = INNERVATE_CD - elapsed;
+
+      const row = document.createElement('div');
+      row.className = 'druid-row';
+
+      let statusHtml = '';
+      if (remBuff > 0) {
+        // Active Buff (0-20s)
+        const pct = (remBuff / INNERVATE_BUFF_DUR) * 100;
+        statusHtml = `
+          <div class="status-bar">
+            <div class="bar-fill active-buff" style="width: ${pct}%"></div>
+            <div class="bar-text">${cdData.target} ${Math.ceil(remBuff)}s</div>
+          </div>
+        `;
+      } else if (remCD > 0) {
+        // Cooldown (20-360s)
+        const pct = (remCD / (INNERVATE_CD - INNERVATE_BUFF_DUR)) * 100;
+        const mins = Math.floor(remCD / 60);
+        const secs = Math.floor(remCD % 60);
+        const secStr = secs < 10 ? '0' + secs : secs;
+        statusHtml = `
+          <div class="status-bar">
+            <div class="bar-fill cooldown" style="width: ${pct}%"></div>
+            <div class="bar-text">${mins}m${secStr}s</div>
+          </div>
+        `;
+      } else {
+        // Ready
+        if (cdData) delete db.activeCDs[druid];
+        statusHtml = `<div class="status-ready">Ready</div>`;
+      }
+
+      row.innerHTML = `
+        <div class="druid-name">${druid} (${casts})</div>
+        ${statusHtml}
+      `;
+
+      // Tooltip listeners
+      row.addEventListener('mouseenter', (e) => showTooltip(druid, e));
+      row.addEventListener('mouseleave', hideTooltip);
+
+      container.appendChild(row);
+    });
+  }
+
+  function showTooltip(druid, e) {
+    const tt = document.getElementById('gameTooltip');
+    const casts = db.casts[druid] || 0;
+    const cdData = db.activeCDs[druid];
+    const history = db.history[druid] || {};
+
+    document.getElementById('ttTitle').innerText = `${druid} (Casts: ${casts})`;
+
+    const lastEl = document.getElementById('ttLast');
+    if (cdData && cdData.target) {
+      lastEl.style.display = 'block';
+      lastEl.innerText = `Last Innervate for: ${cdData.target}`;
+    } else {
+      lastEl.style.display = 'none';
+    }
+
+    const linesEl = document.getElementById('ttLines');
+    linesEl.innerHTML = '';
+    const targets = Object.keys(history);
+
+    if (targets.length > 0) {
+      targets.forEach(t => {
+        linesEl.innerHTML += `
+          <div class="tt-line">
+            <span>  ${t}</span>
+            <span class="count">${history[t]} x</span>
+          </div>
+        `;
+      });
+    } else {
+      linesEl.innerHTML = `<div class="tt-line" style="color:#777">No casts recorded this session.</div>`;
+    }
+
+    tt.style.display = 'block';
+    tt.style.left = (trackerFrame.offsetLeft + trackerFrame.offsetWidth + 10) + 'px';
+    tt.style.top = (trackerFrame.offsetTop) + 'px';
+  }
+
+  function hideTooltip() {
+    document.getElementById('gameTooltip').style.display = 'none';
+  }
+
+  function castInnervate(druid, target) {
+    const now = Math.floor(Date.now() / 1000);
+    db.casts[druid] = (db.casts[druid] || 0) + 1;
+
+    db.history[druid] = db.history[druid] || {};
+    db.history[druid][target] = (db.history[druid][target] || 0) + 1;
+
+    db.activeCDs[druid] = {
+      castTime: now,
+      target: target
+    };
+
+    log(`[SPELL_CAST_SUCCESS] ${druid} cast Innervate on ${target}!`);
+    renderTracker();
+  }
+
+  function toggleGrow() {
+    db.growUp = !db.growUp;
+    log(`Growth direction set to: ${db.growUp ? 'Upwards (^)' : 'Downwards (v)'}`);
+    renderTracker();
+  }
+
+  function toggleGroupState() {
+    isInGroup = !isInGroup;
+    log(isInGroup ? 'Joined raid group.' : 'Left raid group. (Session druid data remains accessible!)');
+    renderTracker();
+  }
+
+  function reloadUI() {
+    log('Simulating /reload... SavedVariables (InnervateTrackerDB) restored from memory/disk.');
+    renderTracker();
+  }
+
+  function resetStats() {
+    db.casts = {};
+    db.history = {};
+    db.activeCDs = {};
+    db.startTime = Math.floor(Date.now() / 1000);
+    log('Stats and session time reset.');
+    renderTracker();
+  }
+
+  // Event Listeners
+  document.getElementById('resetBtn').addEventListener('click', resetStats);
+  document.getElementById('growBtn').addEventListener('click', toggleGrow);
+
+  // Timer tick
+  setInterval(renderTracker, 500);
+
+  // Initial render
+  renderTracker();
+</script>
+</body>
+</html>

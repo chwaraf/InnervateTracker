@@ -49,7 +49,7 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Growth Direction Button [v] / [^] (Top Left)
+-- Growth Direction Button [v] / [^] (Header)
 local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 growBtn:SetSize(16, 14)
 growBtn:SetText("v")
@@ -61,12 +61,12 @@ growBtn:SetScript("OnEnter", function(self)
 end)
 growBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
--- Session time header (Shortened to S: 0m)
+-- Session time header (S: 0m)
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 title:SetTextColor(1, 0.82, 0)
 
--- Reset button "R" (Top Right)
+-- Reset button "R" (Header)
 local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 resetBtn:SetSize(16, 14)
 resetBtn:SetText("R")
@@ -106,10 +106,12 @@ local function UpdateHeaderLayout()
     resetBtn:ClearAllPoints()
 
     if isUp then
+        -- Header fixed at BOTTOM of frame when growing upwards
         growBtn:SetPoint("BOTTOMLEFT", 5, 4)
         title:SetPoint("BOTTOMLEFT", 24, 5)
         resetBtn:SetPoint("BOTTOMRIGHT", -5, 4)
     else
+        -- Header fixed at TOP of frame when growing downwards
         growBtn:SetPoint("TOPLEFT", 5, -4)
         title:SetPoint("TOPLEFT", 24, -5)
         resetBtn:SetPoint("TOPRIGHT", -5, -4)
@@ -128,6 +130,17 @@ end
 growBtn:SetScript("OnClick", function()
     if not InnervateTrackerDB then return end
     InnervateTrackerDB.growUp = not InnervateTrackerDB.growUp
+    
+    -- Adjust anchor point so expanding height moves top/bottom appropriately
+    local point, rel, relPoint, x, y = f:GetPoint()
+    if point and InnervateTrackerDB.growUp then
+        f:ClearAllPoints()
+        f:SetPoint("BOTTOMLEFT", UIParent, relPoint or "BOTTOMLEFT", x, y)
+    elseif point then
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, relPoint or "TOPLEFT", x, y)
+    end
+
     UpdateHeaderLayout()
     if UpdateDisplay then UpdateDisplay() end
 end)
@@ -264,8 +277,10 @@ UpdateDisplay = function()
 
         row:ClearAllPoints()
         if isUp then
+            -- Growing UP: Row 1 is placed right above the bottom header bar (y=20), Row 2 above Row 1, etc.
             row:SetPoint("BOTTOMLEFT", 6, 20 + ((index - 1) * 15))
         else
+            -- Growing DOWN: Row 1 is placed right below the top header bar (y=-20), Row 2 below Row 1, etc.
             row:SetPoint("TOPLEFT", 6, -20 - ((index - 1) * 15))
         end
 
