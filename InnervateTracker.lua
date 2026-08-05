@@ -49,16 +49,26 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Header session time
+-- Growth Direction Button [v] / [^] (Top Left)
+local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+growBtn:SetSize(16, 14)
+growBtn:SetText("v")
+growBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local isUp = InnervateTrackerDB and InnervateTrackerDB.growUp
+    GameTooltip:SetText("Growth direction: " .. (isUp and "Upwards (^)" or "Downwards (v)"), 1, 1, 1)
+    GameTooltip:Show()
+end)
+growBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Session time header (Shortened to S: 0m)
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-title:SetPoint("TOPLEFT", 6, -4)
 title:SetTextColor(1, 0.82, 0)
 
--- Reset button "R"
+-- Reset button "R" (Top Right)
 local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 resetBtn:SetSize(16, 14)
-resetBtn:SetPoint("TOPRIGHT", -5, -4)
 resetBtn:SetText("R")
 resetBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -71,7 +81,7 @@ f.lines = {}
 local druidList = {}
 local isInitialized = false
 
--- Forward declaration of UpdateDisplay
+-- Forward declaration
 local UpdateDisplay
 
 local function GetShortName(fullName)
@@ -80,11 +90,30 @@ local function GetShortName(fullName)
 end
 
 local function FormatSessionTime()
-    if not InnervateTrackerDB or not InnervateTrackerDB.startTime then return "Session: 0m" end
+    if not InnervateTrackerDB or not InnervateTrackerDB.startTime then return "S: 0m" end
     local diff = math.max(0, time() - InnervateTrackerDB.startTime)
     local hrs = math.floor(diff / 3600)
     local mins = math.floor((diff % 3600) / 60)
-    return hrs > 0 and string.format("Session: %dh%dm", hrs, mins) or string.format("Session: %dm", mins)
+    return hrs > 0 and string.format("S: %dh%dm", hrs, mins) or string.format("S: %dm", mins)
+end
+
+local function UpdateHeaderLayout()
+    local isUp = InnervateTrackerDB and InnervateTrackerDB.growUp
+    growBtn:SetText(isUp and "^" or "v")
+
+    growBtn:ClearAllPoints()
+    title:ClearAllPoints()
+    resetBtn:ClearAllPoints()
+
+    if isUp then
+        growBtn:SetPoint("BOTTOMLEFT", 5, 4)
+        title:SetPoint("BOTTOMLEFT", 24, 5)
+        resetBtn:SetPoint("BOTTOMRIGHT", -5, 4)
+    else
+        growBtn:SetPoint("TOPLEFT", 5, -4)
+        title:SetPoint("TOPLEFT", 24, -5)
+        resetBtn:SetPoint("TOPRIGHT", -5, -4)
+    end
 end
 
 local function ResetData()
@@ -96,15 +125,22 @@ local function ResetData()
     print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
 end
 
+growBtn:SetScript("OnClick", function()
+    if not InnervateTrackerDB then return end
+    InnervateTrackerDB.growUp = not InnervateTrackerDB.growUp
+    UpdateHeaderLayout()
+    if UpdateDisplay then UpdateDisplay() end
+end)
+
 resetBtn:SetScript("OnClick", function()
     ResetData()
+    if ScanRaidRoster then ScanRaidRoster() end
     if UpdateDisplay then UpdateDisplay() end
 end)
 
 local function CreateVisualRow(index)
     local row = CreateFrame("Frame", nil, f)
     row:SetSize(158, 14)
-    row:SetPoint("TOPLEFT", 6, -20 - ((index - 1) * 15))
     row:EnableMouse(true)
 
     row.text = row:CreateFontString(nil, "OVERLAY")
@@ -167,6 +203,8 @@ end
 
 local function ScanRaidRoster()
     table.wipe(druidList)
+
+    -- 1. Current group druids
     local numGroup = GetNumGroupMembers()
     if numGroup > 0 then
         local prefix = IsInRaid() and "raid" or "party"
@@ -188,15 +226,31 @@ local function ScanRaidRoster()
             if name then druidList[GetShortName(name)] = true end
         end
     end
+
+    -- 2. Retain all druids who recorded casts during this session (even if they or player left group)
+    if InnervateTrackerDB then
+        if InnervateTrackerDB.casts then
+            for name in pairs(InnervateTrackerDB.casts) do druidList[name] = true end
+        end
+        if InnervateTrackerDB.activeCDs then
+            for name in pairs(InnervateTrackerDB.activeCDs) do druidList[name] = true end
+        end
+        if InnervateTrackerDB.history then
+            for name in pairs(InnervateTrackerDB.history) do druidList[name] = true end
+        end
+    end
 end
 
 UpdateDisplay = function()
     if not isInitialized or not InnervateTrackerDB then return end
+
+    UpdateHeaderLayout()
     title:SetText(FormatSessionTime())
 
     for _, row in ipairs(f.lines) do row:Hide() end
     local index = 1
     local currentTime = time()
+    local isUp = InnervateTrackerDB.growUp
 
     local sortedDruids = {}
     for name in pairs(druidList) do
@@ -207,6 +261,13 @@ UpdateDisplay = function()
     for _, name in ipairs(sortedDruids) do
         local row = f.lines[index] or CreateVisualRow(index)
         row.druidName = name
+
+        row:ClearAllPoints()
+        if isUp then
+            row:SetPoint("BOTTOMLEFT", 6, 20 + ((index - 1) * 15))
+        else
+            row:SetPoint("TOPLEFT", 6, -20 - ((index - 1) * 15))
+        end
 
         local cdData = InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[name]
         local elapsed = cdData and (currentTime - cdData.castTime) or 9999
@@ -306,6 +367,7 @@ SLASH_INVERNATETRACKER1 = "/it"
 SlashCmdList["INVERNATETRACKER"] = function(msg)
     if msg == "reset" then
         ResetData()
+        ScanRaidRoster()
         UpdateDisplay()
     elseif msg == "lock" then
         InnervateTrackerDB.locked = not InnervateTrackerDB.locked
