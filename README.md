@@ -7,6 +7,9 @@
 ## 🌟 Key Features
 
 * **Squeezed & Compact Window (170px)**: Extremely compact UI footprint with bold, crisp, readable fonts (`OUTLINE`).
+* **Raid Role Icons & Name Truncation**:
+  * Displays group role icons (🛡️ Tank, 💚 Healer, ⚔️ Damage) to the left of each Druid's name.
+  * Truncates Druid names longer than 7 characters with a `*` suffix (e.g. `Malfurion` ➔ `Malfuri*`) to maximize space.
 * **2-Phase Visual Cooldown Flow**:
   * **0 – 20s (Active Buff)**: Replaces `Ready` with a cyan bar displaying the target's nick and buff duration (e.g. `PriestA 18s`).
   * **20 – 360s (Cooldown)**: Displays a red/orange bar counting down the Druid's remaining cooldown (e.g. `5m30s`).

@@ -150,6 +150,17 @@
     opacity: 0.5 !important;
   }
 
+  .druid-left-group {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .role-icon {
+    font-size: 10px;
+    line-height: 10px;
+  }
+
   .druid-name {
     font-size: 11px;
     font-weight: bold;
@@ -346,8 +357,8 @@
   <div class="control-panel">
     <div class="panel-title">Interactive Multi-Slot Keybind Simulation Controls</div>
     <div class="controls-grid">
-      <button class="cmd-btn" onclick="castInnervate('Elune', 'PriestA')">⚡ Cast Innervate: Elune ➔ PriestA</button>
-      <button class="cmd-btn" onclick="castInnervate('Malfurion', 'MageB')">⚡ Cast Innervate: Malfurion ➔ MageB</button>
+      <button class="cmd-btn" onclick="castInnervate('Malfurion', 'PriestA')">⚡ Cast Innervate: Malfuri* ➔ PriestA</button>
+      <button class="cmd-btn" onclick="castInnervate('Thunderclaw', 'MageB')">⚡ Cast Innervate: Thunder* ➔ MageB</button>
       <button class="cmd-btn" onclick="pressKeybind(1)">⌨️ Press Keybind [F9] (Whisper Slot 1 - Gold)</button>
       <button class="cmd-btn" onclick="pressKeybind(2)">⌨️ Press Keybind [F10] (Whisper Slot 2 - Cyan)</button>
       <button class="cmd-btn" onclick="pressKeybind(3)">⌨️ Press Keybind [F11] (Whisper Slot 3 - Green)</button>
@@ -355,7 +366,7 @@
       <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Group (Shows 'Absent')</button>
       <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
     </div>
-    <div id="logBox" class="log-box">> Left-click Druid rows to assign Slots (Gold/F9 ➔ Cyan/F10 ➔ Green/F11). Unclicking reassigns slots automatically. Absent druids cannot be whispered.</div>
+    <div id="logBox" class="log-box">> Role icons (🛡️ Tank, 💚 Healer, ⚔️ Damage) & 7-char truncation (Malfuri*, Thunder*) active!</div>
   </div>
 
 <script>
@@ -363,9 +374,9 @@
   let db = {
     startTime: Math.floor(Date.now() / 1000),
     growUp: false,
-    casts: { 'Elune': 1, 'Malfurion': 0 },
+    casts: { 'Malfurion': 1, 'Thunderclaw': 0 },
     history: {
-      'Elune': { 'PriestA': 1 }
+      'Malfurion': { 'PriestA': 1 }
     },
     activeCDs: {}
   };
@@ -373,11 +384,27 @@
   const INNERVATE_CD = 360;      // 6 min
   const INNERVATE_BUFF_DUR = 20; // 20s
 
-  let druidRange = { 'Elune': true, 'Malfurion': false, 'Broll': true };
+  let druidRoles = { 'Elune': 'HEALER', 'Malfurion': 'HEALER', 'Thunderclaw': 'TANK', 'Broll': 'DAMAGER' };
+  let druidRange = { 'Elune': true, 'Malfurion': true, 'Thunderclaw': false, 'Broll': true };
   let selectedDruids = []; // Array of up to 3 highlighted Druids
 
-  let druidsInGroup = ['Elune', 'Malfurion', 'Broll'];
+  let druidsInGroup = ['Elune', 'Malfurion', 'Thunderclaw', 'Broll'];
   let isInGroup = true;
+
+  // Truncate Druid Name to 7 characters max with '*' suffix
+  function formatDruidDisplayName(name) {
+    if (name.length > 7) {
+      return name.substring(0, 7) + '*';
+    }
+    return name;
+  }
+
+  function getRoleIcon(role) {
+    if (role === 'TANK') return '🛡️';
+    if (role === 'HEALER') return '💚';
+    if (role === 'DAMAGER') return '⚔️';
+    return '';
+  }
 
   // Dragging logic for tracker frame
   const trackerFrame = document.getElementById('trackerFrame');
@@ -456,6 +483,7 @@
       const inGroup = isInGroup || !druidsInGroup.includes(druid);
       const inRange = druidRange[druid] !== false;
       const slotIdx = getSlotIndex(druid);
+      const roleIcon = getRoleIcon(druidRoles[druid] || 'NONE');
 
       let rowClass = 'druid-row';
       if (slotIdx) rowClass += ` slot-${slotIdx}`;
@@ -468,10 +496,11 @@
       let statusHtml = '';
       if (remBuff > 0) {
         const pct = (remBuff / INNERVATE_BUFF_DUR) * 100;
+        const targetTrunc = formatDruidDisplayName(cdData.target);
         statusHtml = `
           <div class="status-bar">
             <div class="bar-fill active-buff" style="width: ${pct}%"></div>
-            <div class="bar-text">${cdData.target} ${Math.ceil(remBuff)}s</div>
+            <div class="bar-text">${targetTrunc} ${Math.ceil(remBuff)}s</div>
           </div>
         `;
       } else if (remCD > 0) {
@@ -490,11 +519,15 @@
         statusHtml = `<div class="status-ready">Ready</div>`;
       }
 
-      const nameLabel = !inGroup ? `${druid} (Absent)` : `${druid} (${casts})`;
+      const truncatedName = formatDruidDisplayName(druid);
+      const nameLabel = !inGroup ? `${truncatedName} (Absent)` : `${truncatedName} (${casts})`;
       const nameClass = !inGroup ? 'druid-name absent-text' : 'druid-name';
 
       row.innerHTML = `
-        <div class="${nameClass}">${nameLabel}</div>
+        <div class="druid-left-group">
+          ${roleIcon ? `<span class="role-icon">${roleIcon}</span>` : ''}
+          <div class="${nameClass}">${nameLabel}</div>
+        </div>
         ${statusHtml}
       `;
 
@@ -599,6 +632,18 @@
     document.getElementById('gameTooltip').style.display = 'none';
   }
 
+  function toggleGrow() {
+    db.growUp = !db.growUp;
+    log(`Growth direction set to: ${db.growUp ? 'Upwards (^)' : 'Downwards (v)'}`);
+    renderTracker();
+  }
+
+  function toggleGroupState() {
+    isInGroup = !isInGroup;
+    log(isInGroup ? 'Joined raid group. (Rows updated back to active group status)' : 'Left raid group. (Session druids now marked as "(Absent)" with muted purple color)');
+    renderTracker();
+  }
+
   function castInnervate(druid, target) {
     const now = Math.floor(Date.now() / 1000);
     db.casts[druid] = (db.casts[druid] || 0) + 1;
@@ -627,18 +672,6 @@
     } else {
       log(`[KEYBIND ${keys[slot - 1]}] No Druid is highlighted in Slot #${slot}!`);
     }
-  }
-
-  function toggleGrow() {
-    db.growUp = !db.growUp;
-    log(`Growth direction set to: ${db.growUp ? 'Upwards (^)' : 'Downwards (v)'}`);
-    renderTracker();
-  }
-
-  function toggleGroupState() {
-    isInGroup = !isInGroup;
-    log(isInGroup ? 'Joined raid group. (Rows updated back to active group status)' : 'Left raid group. (Session druids now marked as "(Absent)" with muted purple color)');
-    renderTracker();
   }
 
   function resetStats() {
