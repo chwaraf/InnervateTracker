@@ -129,7 +129,7 @@ local selectedDruids = {}
 local lastWhisperTimes = {}
 
 -- Forward declaration
-local UpdateDisplay, ScanRaidRoster, UpdateUnitStatus
+local UpdateDisplay, ScanRaidRoster
 
 local function GetShortName(fullName)
     if not fullName then return "" end
@@ -327,10 +327,12 @@ local function CreateVisualRow(index)
     row.bar.text = row.bar:CreateFontString(nil, "OVERLAY")
     row.bar.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
     row.bar.text:SetPoint("CENTER", row.bar, "CENTER", 0, 0)
+    row.bar.text:SetWordWrap(false) -- Prevent 2-line word wrapping
 
     row.readyText = row:CreateFontString(nil, "OVERLAY")
     row.readyText:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
     row.readyText:SetPoint("RIGHT", 0, 0)
+    row.readyText:SetWordWrap(false) -- Prevent 2-line word wrapping
 
     -- Left text bounded on LEFT by roleIcon and RIGHT by bar to prevent ANY overlap!
     row.text = row:CreateFontString(nil, "OVERLAY")
@@ -338,6 +340,7 @@ local function CreateVisualRow(index)
     row.text:SetPoint("LEFT", row.roleIcon, "RIGHT", 2, 0)
     row.text:SetPoint("RIGHT", row.bar, "LEFT", -2, 0)
     row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false) -- FORCE SINGLE LINE ONLY (PREVENT 2-LINE WRAPPING)
 
     -- Single OnClick event on mouse release
     row:SetScript("OnClick", function(self, button)
@@ -423,7 +426,6 @@ local function CreateVisualRow(index)
     return row
 end
 
--- Event-driven Roster Scanning (Runs only on group roster changes & reset)
 ScanRaidRoster = function()
     table.wipe(druidList)
 
@@ -495,17 +497,6 @@ ScanRaidRoster = function()
         if not druidList[name] then
             local role = (InnervateTrackerDB and InnervateTrackerDB.roles and InnervateTrackerDB.roles[name]) or "HEALER"
             druidList[name] = { unit = nil, role = role, inGroup = false, isDead = false, isOffline = false, inRange = false }
-        end
-    end
-end
-
--- Refresh unit statuses (Dead, Offline, Range) for active group members
-UpdateUnitStatus = function()
-    for name, data in pairs(druidList) do
-        if data and data.unit and data.inGroup then
-            data.isDead = UnitIsDeadOrGhost(data.unit)
-            data.isOffline = not UnitIsConnected(data.unit)
-            data.inRange = IsUnitInInnervateRange(data.unit)
         end
     end
 end
@@ -655,14 +646,13 @@ UpdateDisplay = function()
     end
 end
 
--- Ultra-light 10 Hz timer loop
 f:SetScript("OnUpdate", function(self, elapsed)
     if not isInitialized or not InnervateTrackerDB then return end
     self.timer = (self.timer or 0) + elapsed
     if self.timer >= 0.1 then
         self.timer = 0
-        UpdateUnitStatus() -- Light status & range check
-        UpdateDisplay()    -- Display refresh
+        ScanRaidRoster()
+        UpdateDisplay()
     end
 end)
 
