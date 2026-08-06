@@ -106,9 +106,13 @@ resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 f.lines = {}
 local druidList = {}
 local isInitialized = false
+local keybindsChecked = false -- One-time keybinding check flag per session
 
 -- Array of up to 3 highlighted Druids: selectedDruids = { "DruidA", "DruidB", "DruidC" }
 local selectedDruids = {}
+
+-- Debounce tracking to prevent double whispers from dual trigger sources
+local lastWhisperTimes = {}
 
 -- Forward declaration
 local UpdateDisplay, ScanRaidRoster
@@ -139,6 +143,12 @@ end
 
 -- Global functions executed by Keybindings (F9, F10, F11) or Right-Click
 function InnervateTracker_WhisperSlot(slotIndex)
+    local now = GetTime and GetTime() or time()
+    -- Guard: Ignore duplicate trigger calls within 0.5 seconds
+    if lastWhisperTimes[slotIndex] and (now - lastWhisperTimes[slotIndex]) < 0.5 then
+        return
+    end
+
     local druidName = selectedDruids[slotIndex]
     if not druidName then
         print("|cffffea00[InnervateTracker]|r No Druid is highlighted in Slot #" .. slotIndex .. "!")
@@ -151,6 +161,7 @@ function InnervateTracker_WhisperSlot(slotIndex)
         return
     end
 
+    lastWhisperTimes[slotIndex] = now
     SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
     print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
 end
@@ -294,15 +305,12 @@ local function CreateVisualRow(index)
         GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.49, 0.04)
 
         local slotIndex = GetDruidSlot(shortDruid)
+        local bindKeys = { "F9", "F10", "F11" }
+        
         if slotIndex then
-            local boundKey = GetBindingKey and GetBindingKey("INNERVATETRACKER_WHISPER" .. slotIndex)
-            local keyText = (boundKey and GetBindingText and GetBindingText(boundKey)) or boundKey or "F" .. (8 + slotIndex)
+            local keyName = (GetBindingKey and GetBindingKey("INNERVATETRACKER_WHISPER" .. slotIndex)) or bindKeys[slotIndex] or ("F" .. (8 + slotIndex))
             local colorHex = SLOT_COLORS[slotIndex] and SLOT_COLORS[slotIndex].hex or "ffd100"
-            if boundKey then
-                GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Press %s or Right-click)|r", colorHex, slotIndex, keyText))
-            else
-                GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Not Bound - set key in Keybindings > AddOns)|r", colorHex, slotIndex))
-            end
+            GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Press %s or Right-click)|r", colorHex, slotIndex, keyName))
         else
             GameTooltip:AddLine("Left-click to highlight (Slot 1: F9, Slot 2: F10, Slot 3: F11)", 0.6, 0.6, 0.6)
         end
@@ -443,25 +451,21 @@ UpdateDisplay = function()
         local isRangeOk = not druidData or druidData.unit == nil or druidData.inRange
 
         if druidData and not druidData.inGroup then
-            -- Druid is Absent (Left group / not in party) -> Muted Purple/Dusty Rose
             row.text:SetText(string.format("%s (Absent)", name))
             row.text:SetTextColor(0.65, 0.45, 0.65)
             row:SetAlpha(0.5)
             row.bar:SetAlpha(0.5)
         elseif druidData and druidData.isOffline then
-            -- Druid is Offline -> Gray
             row.text:SetText(string.format("%s (Off)", name))
             row.text:SetTextColor(0.5, 0.5, 0.5)
             row:SetAlpha(0.5)
             row.bar:SetAlpha(0.5)
         elseif druidData and druidData.isDead then
-            -- Druid is Dead -> Dark Red
             row.text:SetText(string.format("%s (Dead)", name))
             row.text:SetTextColor(0.75, 0.2, 0.2)
             row:SetAlpha(0.6)
             row.bar:SetAlpha(0.6)
         else
-            -- Active Druid in group
             row.text:SetText(string.format("%s (%d)", name, casts))
             row.text:SetTextColor(1.0, 0.49, 0.04)
             if isRangeOk then
@@ -538,10 +542,10 @@ f:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 local function SetupDefaultKeybind()
-    if not SetBinding or not SaveBindings then return end
+    if keybindsChecked or not SetBinding or not SaveBindings then return end
 
-    local setID = GetCurrentBindingSet and GetCurrentBindingSet() or 1
-    if not setID or setID == 0 then setID = 1 end
+    local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
+    if not currentSet or currentSet == 0 then currentSet = 1 end
 
     local defaults = {
         { key = "F9",  cmd = "INNERVATETRACKER_WHISPER1" },
@@ -554,20 +558,19 @@ local function SetupDefaultKeybind()
     for _, def in ipairs(defaults) do
         local currentKey = GetBindingKey and GetBindingKey(def.cmd)
         if not currentKey then
-            -- Check if the target default key is already bound to another action
             local existingAction = GetBindingAction and GetBindingAction(def.key)
             if not existingAction or existingAction == "" or existingAction == def.cmd then
-                SetBinding(def.key, def.cmd, setID)
+                SetBinding(def.key, def.cmd)
                 needsSave = true
-            else
-                print("|cffffea00[InnervateTracker]|r Default key " .. def.key .. " is in use by (" .. existingAction .. "). Assign keybind in Options > Keybindings > AddOns.")
             end
         end
     end
 
     if needsSave then
-        SaveBindings(setID)
+        SaveBindings(currentSet)
     end
+
+    keybindsChecked = true
 end
 
 local function InitDB()
@@ -610,9 +613,9 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
         local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
         if not currentSet or currentSet == 0 then currentSet = 1 end
 
-        SetBinding("F9", "INNERVATETRACKER_WHISPER1", currentSet)
-        SetBinding("F10", "INNERVATETRACKER_WHISPER2", currentSet)
-        SetBinding("F11", "INNERVATETRACKER_WHISPER3", currentSet)
+        SetBinding("F9", "INNERVATETRACKER_WHISPER1")
+        SetBinding("F10", "INNERVATETRACKER_WHISPER2")
+        SetBinding("F11", "INNERVATETRACKER_WHISPER3")
         SaveBindings(currentSet)
 
         print("|cff30ff30[InnervateTracker]|r Force-bound F9, F10, F11 to Slot 1, 2, 3!")
@@ -645,8 +648,10 @@ f:SetScript("OnEvent", function(self, event, ...)
         if loadedAddon == addonName or loadedAddon == "InnervateTracker" then
             InitDB()
         end
-    elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_BINDINGS" then
+    elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         InitDB()
+        SetupDefaultKeybind()
+    elseif event == "UPDATE_BINDINGS" then
         SetupDefaultKeybind()
     elseif event == "GROUP_ROSTER_UPDATE" then
         if not isInitialized then InitDB() else ScanRaidRoster() end
