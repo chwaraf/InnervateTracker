@@ -75,6 +75,20 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
+-- Keyboard Event Listener (Fallback Hotkey handler for F9, F10, F11)
+if f.SetPropagateKeyboardInput then
+    f:SetPropagateKeyboardInput(true)
+end
+f:SetScript("OnKeyDown", function(self, key)
+    if key == "F9" then
+        if InnervateTracker_WhisperSelected1 then InnervateTracker_WhisperSelected1() end
+    elseif key == "F10" then
+        if InnervateTracker_WhisperSelected2 then InnervateTracker_WhisperSelected2() end
+    elseif key == "F11" then
+        if InnervateTracker_WhisperSelected3 then InnervateTracker_WhisperSelected3() end
+    end
+end)
+
 -- Growth Direction Button [v] / [^] (Header)
 local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 growBtn:SetSize(16, 14)
@@ -616,7 +630,7 @@ UpdateDisplay = function()
             -- Ready
             if cdData then
                 if InnervateTrackerDB.soundAlert and cdData.soundPlayed ~= true then
-                    PlaySound(5274) -- SoundKit.ReadyCheck
+                    pcall(PlaySound, 5274) -- SoundKit.ReadyCheck safely wrapped
                     cdData.soundPlayed = true
                 end
                 InnervateTrackerDB.activeCDs[name] = nil
