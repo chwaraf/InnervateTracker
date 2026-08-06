@@ -146,7 +146,7 @@
   .druid-row.out-of-range {
     opacity: 0.35 !important;
   }
-  .druid-row.left-group, .druid-row.offline {
+  .druid-row.absent-group {
     opacity: 0.5 !important;
   }
 
@@ -157,8 +157,8 @@
     text-shadow: 1px 1px 1px #000, -1px -1px 1px #000, 0 0 2px #000;
     white-space: nowrap;
   }
-  .druid-name.left-text, .druid-name.off-text {
-    color: #888;
+  .druid-name.absent-text {
+    color: #a673a6; /* Muted Purple / Dusty Rose */
   }
 
   .status-ready {
@@ -352,10 +352,10 @@
       <button class="cmd-btn" onclick="pressKeybind(2)">⌨️ Press Keybind [F10] (Whisper Slot 2 - Cyan)</button>
       <button class="cmd-btn" onclick="pressKeybind(3)">⌨️ Press Keybind [F11] (Whisper Slot 3 - Green)</button>
       <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth Direction (^ / v)</button>
-      <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Group (Shows 'Left')</button>
+      <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Group (Shows 'Absent')</button>
       <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
     </div>
-    <div id="logBox" class="log-box">> Left-click Druid rows to assign Slots (Gold/F9 ➔ Cyan/F10 ➔ Green/F11). Unclicking automatically reassigns remaining slots!</div>
+    <div id="logBox" class="log-box">> Left-click Druid rows to assign Slots (Gold/F9 ➔ Cyan/F10 ➔ Green/F11). Unclicking reassigns slots automatically. Absent druids cannot be whispered.</div>
   </div>
 
 <script>
@@ -459,7 +459,7 @@
 
       let rowClass = 'druid-row';
       if (slotIdx) rowClass += ` slot-${slotIdx}`;
-      if (!inGroup) rowClass += ' left-group';
+      if (!inGroup) rowClass += ' absent-group';
       else if (!inRange) rowClass += ' out-of-range';
 
       const row = document.createElement('div');
@@ -490,8 +490,8 @@
         statusHtml = `<div class="status-ready">Ready</div>`;
       }
 
-      const nameLabel = !inGroup ? `${druid} (Left)` : `${druid} (${casts})`;
-      const nameClass = !inGroup ? 'druid-name left-text' : 'druid-name';
+      const nameLabel = !inGroup ? `${druid} (Absent)` : `${druid} (${casts})`;
+      const nameClass = !inGroup ? 'druid-name absent-text' : 'druid-name';
 
       row.innerHTML = `
         <div class="${nameClass}">${nameLabel}</div>
@@ -501,14 +501,12 @@
       // Mouse click handlers
       row.addEventListener('mouseup', (e) => {
         if (e.button === 0) {
-          // Left Click toggles slot selection
+          // Left Click
           const existingIdx = selectedDruids.indexOf(druid);
           if (existingIdx !== -1) {
-            // Unmark: Remove and shift remaining slots up!
             selectedDruids.splice(existingIdx, 1);
             log(`Unmarked ${druid}. Remaining slots reassigned.`);
           } else {
-            // Mark
             if (selectedDruids.length < 3) {
               selectedDruids.push(druid);
               const newSlot = selectedDruids.length;
@@ -521,11 +519,15 @@
           }
           renderTracker();
         } else if (e.button === 2) {
-          // Right Click whispers
+          // Right Click
           e.preventDefault();
           const slot = getSlotIndex(druid);
           if (slot) {
-            log(`[RIGHT-CLICK WHISPER] Sent to ${druid} (Slot #${slot}): "Innervate please!"`);
+            if (!inGroup) {
+              log(`Cannot whisper ${druid}: Druid is absent / left group.`);
+            } else {
+              log(`[RIGHT-CLICK WHISPER] Sent to ${druid} (Slot #${slot}): "Innervate please!"`);
+            }
           } else {
             log(`Cannot whisper ${druid}: Left-click to highlight first.`);
           }
@@ -617,7 +619,11 @@
     const keys = ['F9', 'F10', 'F11'];
     const druid = selectedDruids[slot - 1];
     if (druid) {
-      log(`[KEYBIND ${keys[slot - 1]}] Sent whisper to ${druid} (Slot #${slot}): "Innervate please!"`);
+      if (!isInGroup && !druidsInGroup.includes(druid)) {
+        log(`[KEYBIND ${keys[slot - 1]}] Cannot whisper ${druid}: Druid is absent / left group.`);
+      } else {
+        log(`[KEYBIND ${keys[slot - 1]}] Sent whisper to ${druid} (Slot #${slot}): "Innervate please!"`);
+      }
     } else {
       log(`[KEYBIND ${keys[slot - 1]}] No Druid is highlighted in Slot #${slot}!`);
     }
@@ -631,7 +637,7 @@
 
   function toggleGroupState() {
     isInGroup = !isInGroup;
-    log(isInGroup ? 'Joined raid group. (Rows updated back to active group status)' : 'Left raid group. (Session druids now marked as "(Left)" with 50% opacity)');
+    log(isInGroup ? 'Joined raid group. (Rows updated back to active group status)' : 'Left raid group. (Session druids now marked as "(Absent)" with muted purple color)');
     renderTracker();
   }
 
