@@ -1,8 +1,8 @@
 local addonName = ...
 
 -- Keybinding Category & Binding Name Strings for WoW Options > Keybindings > AddOns
-BINDING_HEADER_INNERVATETRACKER = "Innervate Tracker"
-BINDING_NAME_INNERVATETRACKER_WHISPER = "Whisper Highlighted Druid"
+_G["BINDING_HEADER_INNERVATETRACKER"] = "Innervate Tracker"
+_G["BINDING_NAME_INNERVATETRACKER_WHISPER"] = "Whisper Highlighted Druid"
 
 -- Helper to safely get spell name across client versions
 local function GetSpellName(id)
@@ -113,7 +113,7 @@ local function IsUnitInRange(unit)
     return UnitIsVisible(unit) and (CheckInteractDistance(unit, 4) == true or CheckInteractDistance(unit, 1) == true)
 end
 
--- Global function executed by Keybinding (F9 or custom key in Options > Keybindings > AddOns)
+-- Global function executed by Keybinding
 function InnervateTracker_WhisperSelected()
     if selectedDruid then
         SendChatMessage("Innervate please!", "WHISPER", nil, selectedDruid)
@@ -460,7 +460,6 @@ f:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 local function SetupDefaultKeybind()
-    -- Assign default keybind F9 if not currently bound
     if GetBindingKey and SetBinding and SaveBindings then
         local currentKey = GetBindingKey("INNERVATETRACKER_WHISPER")
         if not currentKey and not InnervateTrackerDB.defaultKeySet then

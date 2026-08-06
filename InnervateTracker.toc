@@ -3,5 +3,4 @@
 ## Notes: Innervate Tracker for Druids in TBC Anniversary / Classic
 ## SavedVariables: InnervateTrackerDB
 
-Bindings.xml
 InnervateTracker.lua
