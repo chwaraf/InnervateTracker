@@ -129,7 +129,7 @@ local selectedDruids = {}
 local lastWhisperTimes = {}
 
 -- Forward declaration
-local UpdateDisplay, ScanRaidRoster
+local UpdateDisplay, ScanRaidRoster, UpdateUnitStatus
 
 local function GetShortName(fullName)
     if not fullName then return "" end
@@ -146,13 +146,19 @@ local function FormatDruidDisplayName(fullName)
     end
 end
 
-local function IsUnitInRange(unit)
+-- Exact 30-yard Innervate Cast Range Check
+local function IsUnitInInnervateRange(unit)
     if not unit or UnitIsUnit(unit, "player") then return true end
-    if UnitInRange then
-        local inRange, checked = UnitInRange(unit)
-        if checked then return inRange end
+    
+    -- 1. Check direct 30-yard spell range if player is a Druid
+    if IsSpellInRange then
+        local inRange = IsSpellInRange(INNERVATE_NAME, unit)
+        if inRange == 1 then return true end
+        if inRange == 0 then return false end
     end
-    return UnitIsVisible(unit) and (CheckInteractDistance(unit, 4) == true or CheckInteractDistance(unit, 1) == true)
+    
+    -- 2. Fallback check for non-Druid classes: Follow Distance (~28-30 yards) & Visibility
+    return UnitIsVisible(unit) and CheckInteractDistance(unit, 4) == true
 end
 
 -- Detect Role from Unit or PowerType (Rage = TANK, Energy = DAMAGER, Mana = HEALER/DAMAGER)
@@ -417,6 +423,7 @@ local function CreateVisualRow(index)
     return row
 end
 
+-- Event-driven Roster Scanning (Runs only on group roster changes & reset)
 ScanRaidRoster = function()
     table.wipe(druidList)
 
@@ -441,7 +448,7 @@ ScanRaidRoster = function()
                         inGroup = true,
                         isDead = UnitIsDeadOrGhost(unit),
                         isOffline = not UnitIsConnected(unit),
-                        inRange = IsUnitInRange(unit)
+                        inRange = IsUnitInInnervateRange(unit)
                     }
                 end
             end
@@ -488,6 +495,17 @@ ScanRaidRoster = function()
         if not druidList[name] then
             local role = (InnervateTrackerDB and InnervateTrackerDB.roles and InnervateTrackerDB.roles[name]) or "HEALER"
             druidList[name] = { unit = nil, role = role, inGroup = false, isDead = false, isOffline = false, inRange = false }
+        end
+    end
+end
+
+-- Refresh unit statuses (Dead, Offline, Range) for active group members
+UpdateUnitStatus = function()
+    for name, data in pairs(druidList) do
+        if data and data.unit and data.inGroup then
+            data.isDead = UnitIsDeadOrGhost(data.unit)
+            data.isOffline = not UnitIsConnected(data.unit)
+            data.inRange = IsUnitInInnervateRange(data.unit)
         end
     end
 end
@@ -577,7 +595,7 @@ UpdateDisplay = function()
             if isRangeOk then
                 row:SetAlpha(1.0)
             else
-                -- Out of Range -> Sharp, readable 0.65 alpha fade
+                -- Out of Range (30-yard Innervate range check) -> Sharp, readable 0.65 alpha fade
                 row:SetAlpha(0.65)
             end
         end
@@ -637,13 +655,14 @@ UpdateDisplay = function()
     end
 end
 
+-- Ultra-light 10 Hz timer loop
 f:SetScript("OnUpdate", function(self, elapsed)
     if not isInitialized or not InnervateTrackerDB then return end
     self.timer = (self.timer or 0) + elapsed
     if self.timer >= 0.1 then
         self.timer = 0
-        ScanRaidRoster()
-        UpdateDisplay()
+        UpdateUnitStatus() -- Light status & range check
+        UpdateDisplay()    -- Display refresh
     end
 end)
 
