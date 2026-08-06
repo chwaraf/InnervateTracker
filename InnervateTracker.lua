@@ -1,5 +1,9 @@
 local addonName = ...
 
+-- Keybinding Category & Binding Name Strings for WoW Options > Keybindings > AddOns
+BINDING_HEADER_INNERVATETRACKER = "Innervate Tracker"
+BINDING_NAME_INNERVATETRACKER_WHISPER = "Whisper Highlighted Druid"
+
 -- Helper to safely get spell name across client versions
 local function GetSpellName(id)
     if C_Spell and C_Spell.GetSpellInfo then
@@ -14,6 +18,19 @@ end
 local INNERVATE_NAME = GetSpellName(29166) or "Innervate"
 local INNERVATE_CD = 360            -- Baseline CD: 6 minutes
 local INNERVATE_BUFF_DURATION = 20   -- Buff duration: 20 seconds
+
+-- Class color hex lookup for tooltips
+local CLASS_COLORS = {
+    PRIEST  = { r = 1.0,  g = 1.0,  b = 1.0  }, -- White
+    PALADIN = { r = 0.96, g = 0.55, b = 0.73 }, -- Pink
+    SHAMAN  = { r = 0.0,  g = 0.44, b = 0.87 }, -- Blue
+    MAGE    = { r = 0.25, g = 0.78, b = 0.92 }, -- Light Blue
+    WARLOCK = { r = 0.53, g = 0.53, b = 0.93 }, -- Purple
+    DRUID   = { r = 1.0,  g = 0.49, b = 0.04 }, -- Orange
+    HUNTER  = { r = 0.67, g = 0.83, b = 0.45 }, -- Green
+    ROGUE   = { r = 1.0,  g = 0.96, b = 0.41 }, -- Yellow
+    WARRIOR = { r = 0.78, g = 0.61, b = 0.43 }, -- Brown
+}
 
 -- Create main frame
 local frameTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -80,6 +97,7 @@ resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 f.lines = {}
 local druidList = {}
 local isInitialized = false
+local selectedDruid = nil -- Currently highlighted Druid
 
 -- Forward declaration
 local UpdateDisplay
@@ -87,6 +105,22 @@ local UpdateDisplay
 local function GetShortName(fullName)
     if not fullName then return "" end
     return string.match(fullName, "^([^-]+)") or fullName
+end
+
+local function IsUnitInRange(unit)
+    if not unit then return true end
+    if UnitIsUnit(unit, "player") then return true end
+    return UnitIsVisible(unit) and (CheckInteractDistance(unit, 4) == true or CheckInteractDistance(unit, 1) == true)
+end
+
+-- Global function executed by Keybinding (F9 or custom key in Options > Keybindings > AddOns)
+function InnervateTracker_WhisperSelected()
+    if selectedDruid then
+        SendChatMessage("Innervate please!", "WHISPER", nil, selectedDruid)
+        print("|cff30ff30[InnervateTracker]|r Whispered " .. selectedDruid .. ": Innervate please!")
+    else
+        print("|cffffea00[InnervateTracker]|r No Druid is highlighted! Left-click a Druid row to highlight first.")
+    end
 end
 
 local function FormatSessionTime()
@@ -106,12 +140,10 @@ local function UpdateHeaderLayout()
     resetBtn:ClearAllPoints()
 
     if isUp then
-        -- Header fixed at BOTTOM of frame when growing upwards
         growBtn:SetPoint("BOTTOMLEFT", 5, 4)
         title:SetPoint("BOTTOMLEFT", 24, 5)
         resetBtn:SetPoint("BOTTOMRIGHT", -5, 4)
     else
-        -- Header fixed at TOP of frame when growing downwards
         growBtn:SetPoint("TOPLEFT", 5, -4)
         title:SetPoint("TOPLEFT", 24, -5)
         resetBtn:SetPoint("TOPRIGHT", -5, -4)
@@ -124,6 +156,7 @@ local function ResetData()
     InnervateTrackerDB.history = {}
     InnervateTrackerDB.activeCDs = {}
     InnervateTrackerDB.startTime = time()
+    selectedDruid = nil
     print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
 end
 
@@ -131,7 +164,6 @@ growBtn:SetScript("OnClick", function()
     if not InnervateTrackerDB then return end
     InnervateTrackerDB.growUp = not InnervateTrackerDB.growUp
     
-    -- Adjust anchor point so expanding height moves top/bottom appropriately
     local point, rel, relPoint, x, y = f:GetPoint()
     if point and InnervateTrackerDB.growUp then
         f:ClearAllPoints()
@@ -156,9 +188,15 @@ local function CreateVisualRow(index)
     row:SetSize(158, 14)
     row:EnableMouse(true)
 
+    -- Row highlight texture for Left-Click selection
+    row.highlightBg = row:CreateTexture(nil, "BACKGROUND")
+    row.highlightBg:SetAllPoints(row)
+    row.highlightBg:SetColorTexture(1.0, 0.82, 0.0, 0.25) -- Gold highlight
+    row.highlightBg:Hide()
+
     row.text = row:CreateFontString(nil, "OVERLAY")
     row.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-    row.text:SetPoint("LEFT", 0, 0)
+    row.text:SetPoint("LEFT", 2, 0)
     row.text:SetTextColor(1.0, 0.49, 0.04)
 
     row.readyText = row:CreateFontString(nil, "OVERLAY")
@@ -179,6 +217,27 @@ local function CreateVisualRow(index)
     row.bar.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
     row.bar.text:SetPoint("CENTER", row.bar, "CENTER", 0, 0)
 
+    -- Left Click: Highlight / Select Druid
+    -- Right Click: Whisper selected Druid
+    row:SetScript("OnMouseUp", function(self, button)
+        if not self.druidName then return end
+        local shortDruid = GetShortName(self.druidName)
+
+        if button == "LeftButton" then
+            if selectedDruid == shortDruid then
+                selectedDruid = nil
+            else
+                selectedDruid = shortDruid
+            end
+            if UpdateDisplay then UpdateDisplay() end
+
+        elseif button == "RightButton" then
+            if selectedDruid == shortDruid then
+                InnervateTracker_WhisperSelected()
+            end
+        end
+    end)
+
     row:SetScript("OnEnter", function(self)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
@@ -187,7 +246,14 @@ local function CreateVisualRow(index)
         GameTooltip:ClearLines()
 
         local totalCasts = InnervateTrackerDB and InnervateTrackerDB.casts and InnervateTrackerDB.casts[shortDruid] or 0
-        GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.5, 0)
+        GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.49, 0.04)
+
+        local bindKey = GetBindingKey("INNERVATETRACKER_WHISPER") or "F9"
+        if selectedDruid == shortDruid then
+            GameTooltip:AddLine("★ Highlighted (Press " .. bindKey .. " or Right-click to whisper)", 1, 0.82, 0)
+        else
+            GameTooltip:AddLine("Left-click to highlight (" .. bindKey .. " to whisper)", 0.6, 0.6, 0.6)
+        end
 
         local cdData = InnervateTrackerDB and InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[shortDruid]
         if cdData and cdData.target then
@@ -200,7 +266,15 @@ local function CreateVisualRow(index)
         if history and next(history) then
             GameTooltip:AddLine("Received Innervate:", 1, 1, 1)
             for target, count in pairs(history) do
-                GameTooltip:AddDoubleLine("  " .. GetShortName(target), count .. " x", 0.8, 0.8, 0.8, 0.2, 1, 0.2)
+                local shortTarget = GetShortName(target)
+                local color = { r = 0.8, g = 0.8, b = 0.8 }
+                if UnitExists and UnitClass then
+                    local _, classToken = UnitClass(shortTarget)
+                    if classToken and CLASS_COLORS[classToken] then
+                        color = CLASS_COLORS[classToken]
+                    end
+                end
+                GameTooltip:AddDoubleLine("  " .. shortTarget, count .. " x", color.r, color.g, color.b, 0.2, 1, 0.2)
             end
         else
             GameTooltip:AddLine("No casts recorded this session.", 0.6, 0.6, 0.6)
@@ -228,7 +302,12 @@ local function ScanRaidRoster()
                 local shortName = GetShortName(name)
                 local _, class = UnitClass(unit)
                 if class == "DRUID" then
-                    druidList[shortName] = true
+                    druidList[shortName] = {
+                        unit = unit,
+                        isDead = UnitIsDeadOrGhost(unit),
+                        isOffline = not UnitIsConnected(unit),
+                        inRange = IsUnitInRange(unit)
+                    }
                 end
             end
         end
@@ -236,20 +315,28 @@ local function ScanRaidRoster()
         local _, class = UnitClass("player")
         if class == "DRUID" then
             local name = UnitName("player")
-            if name then druidList[GetShortName(name)] = true end
+            if name then
+                druidList[GetShortName(name)] = {
+                    unit = "player",
+                    isDead = UnitIsDeadOrGhost("player"),
+                    isOffline = false,
+                    inRange = true
+                }
+            end
         end
     end
 
-    -- 2. Retain all druids who recorded casts during this session (even if they or player left group)
+    -- 2. Retain all druids who recorded casts during this session
     if InnervateTrackerDB then
-        if InnervateTrackerDB.casts then
-            for name in pairs(InnervateTrackerDB.casts) do druidList[name] = true end
-        end
-        if InnervateTrackerDB.activeCDs then
-            for name in pairs(InnervateTrackerDB.activeCDs) do druidList[name] = true end
-        end
-        if InnervateTrackerDB.history then
-            for name in pairs(InnervateTrackerDB.history) do druidList[name] = true end
+        local tables = { InnervateTrackerDB.casts, InnervateTrackerDB.activeCDs, InnervateTrackerDB.history }
+        for _, tbl in ipairs(tables) do
+            if tbl then
+                for name in pairs(tbl) do
+                    if not druidList[name] then
+                        druidList[name] = { unit = nil, isDead = false, isOffline = false, inRange = false }
+                    end
+                end
+            end
         end
     end
 end
@@ -277,20 +364,41 @@ UpdateDisplay = function()
 
         row:ClearAllPoints()
         if isUp then
-            -- Growing UP: Row 1 is placed right above the bottom header bar (y=20), Row 2 above Row 1, etc.
             row:SetPoint("BOTTOMLEFT", 6, 20 + ((index - 1) * 15))
         else
-            -- Growing DOWN: Row 1 is placed right below the top header bar (y=-20), Row 2 below Row 1, etc.
             row:SetPoint("TOPLEFT", 6, -20 - ((index - 1) * 15))
         end
 
+        local druidData = druidList[name]
         local cdData = InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[name]
         local elapsed = cdData and (currentTime - cdData.castTime) or 9999
         local remainingCD = INNERVATE_CD - elapsed
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
         local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
 
-        row.text:SetText(string.format("%s (%d)", name, casts))
+        -- Highlight selection check
+        if selectedDruid == name then
+            row.highlightBg:Show()
+        else
+            row.highlightBg:Hide()
+        end
+
+        -- Status & Range Opacity handling
+        local isRangeOk = not druidData or druidData.unit == nil or druidData.inRange
+
+        if druidData and druidData.isOffline then
+            row.text:SetText(string.format("%s (Off)", name))
+            row.text:SetTextColor(0.5, 0.5, 0.5)
+            row:SetAlpha(0.5)
+        elseif druidData and druidData.isDead then
+            row.text:SetText(string.format("%s (Dead)", name))
+            row.text:SetTextColor(0.7, 0.2, 0.2)
+            row:SetAlpha(0.6)
+        else
+            row.text:SetText(string.format("%s (%d)", name, casts))
+            row.text:SetTextColor(1.0, 0.49, 0.04)
+            row:SetAlpha(isRangeOk and 1.0 or 0.4)
+        end
 
         if remainingBuff > 0 then
             -- Active Buff (0-20s)
@@ -346,9 +454,23 @@ f:SetScript("OnUpdate", function(self, elapsed)
     self.timer = (self.timer or 0) + elapsed
     if self.timer >= 0.1 then
         self.timer = 0
+        ScanRaidRoster()
         UpdateDisplay()
     end
 end)
+
+local function SetupDefaultKeybind()
+    -- Assign default keybind F9 if not currently bound
+    if GetBindingKey and SetBinding and SaveBindings then
+        local currentKey = GetBindingKey("INNERVATETRACKER_WHISPER")
+        if not currentKey and not InnervateTrackerDB.defaultKeySet then
+            SetBinding("F9", "INNERVATETRACKER_WHISPER")
+            local setID = GetCurrentBindingSet and GetCurrentBindingSet() or 1
+            SaveBindings(setID)
+            InnervateTrackerDB.defaultKeySet = true
+        end
+    end
+end
 
 local function InitDB()
     if isInitialized then return end
@@ -373,6 +495,8 @@ local function InitDB()
     f:ClearAllPoints()
     f:SetPoint(InnervateTrackerDB.point, UIParent, InnervateTrackerDB.relPoint, InnervateTrackerDB.x, InnervateTrackerDB.y)
 
+    SetupDefaultKeybind()
+
     isInitialized = true
     ScanRaidRoster()
     UpdateDisplay()
@@ -395,6 +519,7 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
         print("  /it reset - resets counters and session time.")
         print("  /it lock  - locks / unlocks frame dragging.")
         print("  /it sound - toggles sound alert when Innervate becomes Ready.")
+        print("  Keybind: Options > Keybindings > AddOns > Innervate Tracker (Default: F9)")
     end
 end
 
@@ -411,6 +536,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_LOGIN" then
         InitDB()
+        SetupDefaultKeybind()
     elseif event == "GROUP_ROSTER_UPDATE" then
         if not isInitialized then InitDB() else ScanRaidRoster() end
         UpdateDisplay()

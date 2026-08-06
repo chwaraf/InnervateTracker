@@ -1,0 +1,7 @@
+<Bindings>
+    <Binding name="INNERVATETRACKER_WHISPER" header="INNERVATETRACKER">
+        if InnervateTracker_WhisperSelected then
+            InnervateTracker_WhisperSelected()
+        end
+    </Binding>
+</Bindings>

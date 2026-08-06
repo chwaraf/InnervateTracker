@@ -49,7 +49,7 @@
   /* Innervate Tracker Main Frame */
   #trackerFrame {
     position: absolute;
-    bottom: 50px; /* Anchored at bottom for growUp compatibility */
+    bottom: 50px;
     left: 215px;
     width: 170px;
     background: rgba(0, 0, 0, 0.75);
@@ -121,9 +121,19 @@
     justify-content: space-between;
     position: relative;
     cursor: pointer;
+    padding: 0 2px;
+    transition: opacity 0.2s ease;
   }
   .druid-row:hover {
     background: rgba(255, 255, 255, 0.1);
+  }
+  .druid-row.highlighted {
+    background: rgba(255, 209, 0, 0.25) !important;
+    border: 1px solid rgba(255, 209, 0, 0.8);
+    border-radius: 2px;
+  }
+  .druid-row.out-of-range {
+    opacity: 0.4;
   }
 
   .druid-name {
@@ -198,6 +208,11 @@
     font-size: 12px;
     font-weight: bold;
     color: #ff7d0a;
+  }
+  .tt-sub {
+    font-size: 10px;
+    color: #ffd100;
+    margin-top: 2px;
   }
   .tt-last {
     font-size: 11px;
@@ -302,6 +317,7 @@
     <!-- GAMETOOLTIP -->
     <div id="gameTooltip">
       <div id="ttTitle" class="tt-title">Elune (Casts: 0)</div>
+      <div id="ttSub" class="tt-sub">Left-click to highlight & enable whisper</div>
       <div id="ttLast" class="tt-last">Last Innervate for: PriestA</div>
       <div class="tt-divider"></div>
       <div class="tt-header">Received Innervate:</div>
@@ -315,12 +331,12 @@
     <div class="controls-grid">
       <button class="cmd-btn" onclick="castInnervate('Elune', 'PriestA')">⚡ Cast Innervate: Elune ➔ PriestA</button>
       <button class="cmd-btn" onclick="castInnervate('Malfurion', 'MageB')">⚡ Cast Innervate: Malfurion ➔ MageB</button>
+      <button class="cmd-btn" onclick="toggleRange('Malfurion')">📡 Toggle Range: Malfurion (In / Out Range)</button>
       <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth Direction (^ / v)</button>
       <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Raid Group</button>
-      <button class="cmd-btn" onclick="reloadUI()">🔄 Simulate /reload (SavedVariables Test)</button>
       <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
     </div>
-    <div id="logBox" class="log-box">> Addon loaded. SavedVariables (InnervateTrackerDB) active.</div>
+    <div id="logBox" class="log-box">> Addon loaded. Try Left-clicking a Druid row to Highlight, then Right-click to Whisper!</div>
   </div>
 
 <script>
@@ -337,6 +353,9 @@
 
   const INNERVATE_CD = 360;      // 6 min
   const INNERVATE_BUFF_DUR = 20; // 20s
+
+  let druidRange = { 'Elune': true, 'Malfurion': false, 'Broll': true };
+  let selectedDruid = null; // Highlighted Druid
 
   let druidsInGroup = ['Elune', 'Malfurion', 'Broll'];
   let isInGroup = true;
@@ -383,7 +402,6 @@
   }
 
   function renderTracker() {
-    // Header layout & Growth orientation
     document.getElementById('sessionTitle').innerText = getSessionTimeStr();
     document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
 
@@ -392,7 +410,6 @@
     const container = document.getElementById('rowsContainer');
     container.className = 'rows-container' + (db.growUp ? ' grow-up' : '');
 
-    // Get list of druids to display (group members + session history druids)
     let druidSet = new Set();
     if (isInGroup) {
       druidsInGroup.forEach(d => druidSet.add(d));
@@ -412,12 +429,14 @@
       const remBuff = INNERVATE_BUFF_DUR - elapsed;
       const remCD = INNERVATE_CD - elapsed;
 
+      const inRange = druidRange[druid] !== false;
+      const isSelected = selectedDruid === druid;
+
       const row = document.createElement('div');
-      row.className = 'druid-row';
+      row.className = 'druid-row' + (isSelected ? ' highlighted' : '') + (!inRange ? ' out-of-range' : '');
 
       let statusHtml = '';
       if (remBuff > 0) {
-        // Active Buff (0-20s)
         const pct = (remBuff / INNERVATE_BUFF_DUR) * 100;
         statusHtml = `
           <div class="status-bar">
@@ -426,7 +445,6 @@
           </div>
         `;
       } else if (remCD > 0) {
-        // Cooldown (20-360s)
         const pct = (remCD / (INNERVATE_CD - INNERVATE_BUFF_DUR)) * 100;
         const mins = Math.floor(remCD / 60);
         const secs = Math.floor(remCD % 60);
@@ -438,7 +456,6 @@
           </div>
         `;
       } else {
-        // Ready
         if (cdData) delete db.activeCDs[druid];
         statusHtml = `<div class="status-ready">Ready</div>`;
       }
@@ -447,6 +464,26 @@
         <div class="druid-name">${druid} (${casts})</div>
         ${statusHtml}
       `;
+
+      // Mouse click handlers (Left-Click to highlight, Right-Click to whisper)
+      row.addEventListener('mouseup', (e) => {
+        if (e.button === 0) {
+          // Left Click
+          selectedDruid = (selectedDruid === druid) ? null : druid;
+          log(selectedDruid ? `Highlighted ${druid}. Right-click to send whisper.` : `Unhighlighted ${druid}.`);
+          renderTracker();
+        } else if (e.button === 2) {
+          // Right Click
+          e.preventDefault();
+          if (selectedDruid === druid) {
+            log(`[WHISPER] Sent to ${druid}: "Innervate please!"`);
+          } else {
+            log(`Cannot whisper ${druid}: Left-click to highlight first.`);
+          }
+        }
+      });
+
+      row.addEventListener('contextmenu', (e) => e.preventDefault());
 
       // Tooltip listeners
       row.addEventListener('mouseenter', (e) => showTooltip(druid, e));
@@ -461,8 +498,18 @@
     const casts = db.casts[druid] || 0;
     const cdData = db.activeCDs[druid];
     const history = db.history[druid] || {};
+    const isSelected = selectedDruid === druid;
 
     document.getElementById('ttTitle').innerText = `${druid} (Casts: ${casts})`;
+    
+    const subEl = document.getElementById('ttSub');
+    if (isSelected) {
+      subEl.innerText = '★ Highlighted (Right-click to whisper)';
+      subEl.style.color = '#ffd100';
+    } else {
+      subEl.innerText = 'Left-click to highlight & enable whisper';
+      subEl.style.color = '#888';
+    }
 
     const lastEl = document.getElementById('ttLast');
     if (cdData && cdData.target) {
@@ -498,6 +545,12 @@
     document.getElementById('gameTooltip').style.display = 'none';
   }
 
+  function toggleRange(druid) {
+    druidRange[druid] = !druidRange[druid];
+    log(`Range status for ${druid}: ${druidRange[druid] ? 'In Range (1.0 alpha)' : 'Out of Range (0.4 alpha faded)'}`);
+    renderTracker();
+  }
+
   function castInnervate(druid, target) {
     const now = Math.floor(Date.now() / 1000);
     db.casts[druid] = (db.casts[druid] || 0) + 1;
@@ -526,16 +579,12 @@
     renderTracker();
   }
 
-  function reloadUI() {
-    log('Simulating /reload... SavedVariables (InnervateTrackerDB) restored from memory/disk.');
-    renderTracker();
-  }
-
   function resetStats() {
     db.casts = {};
     db.history = {};
     db.activeCDs = {};
     db.startTime = Math.floor(Date.now() / 1000);
+    selectedDruid = null;
     log('Stats and session time reset.');
     renderTracker();
   }
