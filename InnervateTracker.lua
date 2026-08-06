@@ -75,20 +75,6 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Keyboard Event Listener (Fallback Hotkey handler for F9, F10, F11)
-if f.SetPropagateKeyboardInput then
-    f:SetPropagateKeyboardInput(true)
-end
-f:SetScript("OnKeyDown", function(self, key)
-    if key == "F9" then
-        if InnervateTracker_WhisperSelected1 then InnervateTracker_WhisperSelected1() end
-    elseif key == "F10" then
-        if InnervateTracker_WhisperSelected2 then InnervateTracker_WhisperSelected2() end
-    elseif key == "F11" then
-        if InnervateTracker_WhisperSelected3 then InnervateTracker_WhisperSelected3() end
-    end
-end)
-
 -- Growth Direction Button [v] / [^] (Header)
 local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 growBtn:SetSize(16, 14)
@@ -213,7 +199,7 @@ function InnervateTracker_WhisperSlot(slotIndex)
     if lastWhisperTimes[slotIndex] and (now - lastWhisperTimes[slotIndex]) < 0.5 then
         return
     end
-    lastWhisperTimes[slotIndex] = now -- Immediately set timestamp to block duplicate triggers
+    lastWhisperTimes[slotIndex] = now
 
     local druidName = selectedDruids[slotIndex]
     if not druidName then
@@ -227,8 +213,19 @@ function InnervateTracker_WhisperSlot(slotIndex)
         return
     end
 
-    SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
-    print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
+    -- In combat, check if SendChatMessage can be sent safely or open chat editbox
+    if InCombatLockdown and InCombatLockdown() then
+        if ChatFrame_OpenChat then
+            ChatFrame_OpenChat("/w " .. druidName .. " Innervate please!")
+            print("|cff30ff30[InnervateTracker]|r Combat lockdown active: Opened whisper editbox for " .. druidName)
+        else
+            SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
+            print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
+        end
+    else
+        SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
+        print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
+    end
 end
 
 function InnervateTracker_WhisperSelected1() InnervateTracker_WhisperSlot(1) end
@@ -657,6 +654,8 @@ f:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 local function SetupDefaultKeybind()
+    -- Guard: Do not run in combat lockdown
+    if InCombatLockdown and InCombatLockdown() then return end
     if keybindsChecked or not SetBinding or not SaveBindings then return end
 
     local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
@@ -733,6 +732,10 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
         ScanRaidRoster()
         UpdateDisplay()
     elseif msg == "bind" then
+        if InCombatLockdown and InCombatLockdown() then
+            print("|cffff0000[InnervateTracker]|r Cannot modify keybindings while in combat!")
+            return
+        end
         local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
         if not currentSet or currentSet == 0 then currentSet = 1 end
 
