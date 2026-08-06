@@ -122,18 +122,32 @@
     position: relative;
     cursor: pointer;
     padding: 0 2px;
-    transition: opacity 0.2s ease;
+    transition: background 0.15s ease, opacity 0.2s ease;
   }
   .druid-row:hover {
     background: rgba(255, 255, 255, 0.1);
   }
-  .druid-row.highlighted {
-    background: rgba(255, 209, 0, 0.25) !important;
+  .druid-row.slot-1 {
+    background: rgba(255, 209, 0, 0.35) !important;
     border: 1px solid rgba(255, 209, 0, 0.8);
     border-radius: 2px;
   }
+  .druid-row.slot-2 {
+    background: rgba(30, 179, 255, 0.35) !important;
+    border: 1px solid rgba(30, 179, 255, 0.8);
+    border-radius: 2px;
+  }
+  .druid-row.slot-3 {
+    background: rgba(48, 255, 48, 0.35) !important;
+    border: 1px solid rgba(48, 255, 48, 0.8);
+    border-radius: 2px;
+  }
+
   .druid-row.out-of-range {
-    opacity: 0.4;
+    opacity: 0.35 !important;
+  }
+  .druid-row.left-group, .druid-row.offline {
+    opacity: 0.5 !important;
   }
 
   .druid-name {
@@ -142,6 +156,9 @@
     color: #ff7d0a; /* Druid Orange */
     text-shadow: 1px 1px 1px #000, -1px -1px 1px #000, 0 0 2px #000;
     white-space: nowrap;
+  }
+  .druid-name.left-text, .druid-name.off-text {
+    color: #888;
   }
 
   .status-ready {
@@ -327,16 +344,18 @@
 
   <!-- CONTROL PANEL -->
   <div class="control-panel">
-    <div class="panel-title">Interactive Simulation Controls</div>
+    <div class="panel-title">Interactive Multi-Slot Keybind Simulation Controls</div>
     <div class="controls-grid">
       <button class="cmd-btn" onclick="castInnervate('Elune', 'PriestA')">⚡ Cast Innervate: Elune ➔ PriestA</button>
       <button class="cmd-btn" onclick="castInnervate('Malfurion', 'MageB')">⚡ Cast Innervate: Malfurion ➔ MageB</button>
-      <button class="cmd-btn" onclick="toggleRange('Malfurion')">📡 Toggle Range: Malfurion (In / Out Range)</button>
+      <button class="cmd-btn" onclick="pressKeybind(1)">⌨️ Press Keybind [F9] (Whisper Slot 1 - Gold)</button>
+      <button class="cmd-btn" onclick="pressKeybind(2)">⌨️ Press Keybind [F10] (Whisper Slot 2 - Cyan)</button>
+      <button class="cmd-btn" onclick="pressKeybind(3)">⌨️ Press Keybind [F11] (Whisper Slot 3 - Green)</button>
       <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth Direction (^ / v)</button>
-      <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Raid Group</button>
+      <button class="cmd-btn" onclick="toggleGroupState()">🚪 Leave / Join Group (Shows 'Left')</button>
       <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
     </div>
-    <div id="logBox" class="log-box">> Addon loaded. Try Left-clicking a Druid row to Highlight, then Right-click to Whisper!</div>
+    <div id="logBox" class="log-box">> Left-click Druid rows to assign Slots (Gold/F9 ➔ Cyan/F10 ➔ Green/F11). Unclicking automatically reassigns remaining slots!</div>
   </div>
 
 <script>
@@ -355,7 +374,7 @@
   const INNERVATE_BUFF_DUR = 20; // 20s
 
   let druidRange = { 'Elune': true, 'Malfurion': false, 'Broll': true };
-  let selectedDruid = null; // Highlighted Druid
+  let selectedDruids = []; // Array of up to 3 highlighted Druids
 
   let druidsInGroup = ['Elune', 'Malfurion', 'Broll'];
   let isInGroup = true;
@@ -401,6 +420,11 @@
     return `S: ${mins}m`;
   }
 
+  function getSlotIndex(druid) {
+    const idx = selectedDruids.indexOf(druid);
+    return idx !== -1 ? (idx + 1) : null;
+  }
+
   function renderTracker() {
     document.getElementById('sessionTitle').innerText = getSessionTimeStr();
     document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
@@ -429,11 +453,17 @@
       const remBuff = INNERVATE_BUFF_DUR - elapsed;
       const remCD = INNERVATE_CD - elapsed;
 
+      const inGroup = isInGroup || !druidsInGroup.includes(druid);
       const inRange = druidRange[druid] !== false;
-      const isSelected = selectedDruid === druid;
+      const slotIdx = getSlotIndex(druid);
+
+      let rowClass = 'druid-row';
+      if (slotIdx) rowClass += ` slot-${slotIdx}`;
+      if (!inGroup) rowClass += ' left-group';
+      else if (!inRange) rowClass += ' out-of-range';
 
       const row = document.createElement('div');
-      row.className = 'druid-row' + (isSelected ? ' highlighted' : '') + (!inRange ? ' out-of-range' : '');
+      row.className = rowClass;
 
       let statusHtml = '';
       if (remBuff > 0) {
@@ -460,23 +490,42 @@
         statusHtml = `<div class="status-ready">Ready</div>`;
       }
 
+      const nameLabel = !inGroup ? `${druid} (Left)` : `${druid} (${casts})`;
+      const nameClass = !inGroup ? 'druid-name left-text' : 'druid-name';
+
       row.innerHTML = `
-        <div class="druid-name">${druid} (${casts})</div>
+        <div class="${nameClass}">${nameLabel}</div>
         ${statusHtml}
       `;
 
-      // Mouse click handlers (Left-Click to highlight, Right-Click to whisper)
+      // Mouse click handlers
       row.addEventListener('mouseup', (e) => {
         if (e.button === 0) {
-          // Left Click
-          selectedDruid = (selectedDruid === druid) ? null : druid;
-          log(selectedDruid ? `Highlighted ${druid}. Right-click to send whisper.` : `Unhighlighted ${druid}.`);
+          // Left Click toggles slot selection
+          const existingIdx = selectedDruids.indexOf(druid);
+          if (existingIdx !== -1) {
+            // Unmark: Remove and shift remaining slots up!
+            selectedDruids.splice(existingIdx, 1);
+            log(`Unmarked ${druid}. Remaining slots reassigned.`);
+          } else {
+            // Mark
+            if (selectedDruids.length < 3) {
+              selectedDruids.push(druid);
+              const newSlot = selectedDruids.length;
+              const keys = ['F9 (Gold)', 'F10 (Cyan)', 'F11 (Green)'];
+              log(`Marked ${druid} -> Slot #${newSlot} [Bound to ${keys[newSlot - 1]}]`);
+            } else {
+              selectedDruids[2] = druid;
+              log(`Replaced Slot #3 with ${druid} [Bound to F11 (Green)]`);
+            }
+          }
           renderTracker();
         } else if (e.button === 2) {
-          // Right Click
+          // Right Click whispers
           e.preventDefault();
-          if (selectedDruid === druid) {
-            log(`[WHISPER] Sent to ${druid}: "Innervate please!"`);
+          const slot = getSlotIndex(druid);
+          if (slot) {
+            log(`[RIGHT-CLICK WHISPER] Sent to ${druid} (Slot #${slot}): "Innervate please!"`);
           } else {
             log(`Cannot whisper ${druid}: Left-click to highlight first.`);
           }
@@ -498,16 +547,19 @@
     const casts = db.casts[druid] || 0;
     const cdData = db.activeCDs[druid];
     const history = db.history[druid] || {};
-    const isSelected = selectedDruid === druid;
+    const slotIdx = getSlotIndex(druid);
 
     document.getElementById('ttTitle').innerText = `${druid} (Casts: ${casts})`;
     
     const subEl = document.getElementById('ttSub');
-    if (isSelected) {
-      subEl.innerText = '★ Highlighted (Right-click to whisper)';
-      subEl.style.color = '#ffd100';
+    const bindKeys = ['F9', 'F10', 'F11'];
+    const colors = ['#ffd100', '#1eb3ff', '#30ff30'];
+
+    if (slotIdx) {
+      subEl.innerText = `★ Highlighted Slot #${slotIdx} (Press ${bindKeys[slotIdx - 1]} or Right-click)`;
+      subEl.style.color = colors[slotIdx - 1];
     } else {
-      subEl.innerText = 'Left-click to highlight & enable whisper';
+      subEl.innerText = 'Left-click to highlight (Slot 1: F9, Slot 2: F10, Slot 3: F11)';
       subEl.style.color = '#888';
     }
 
@@ -545,12 +597,6 @@
     document.getElementById('gameTooltip').style.display = 'none';
   }
 
-  function toggleRange(druid) {
-    druidRange[druid] = !druidRange[druid];
-    log(`Range status for ${druid}: ${druidRange[druid] ? 'In Range (1.0 alpha)' : 'Out of Range (0.4 alpha faded)'}`);
-    renderTracker();
-  }
-
   function castInnervate(druid, target) {
     const now = Math.floor(Date.now() / 1000);
     db.casts[druid] = (db.casts[druid] || 0) + 1;
@@ -567,6 +613,16 @@
     renderTracker();
   }
 
+  function pressKeybind(slot) {
+    const keys = ['F9', 'F10', 'F11'];
+    const druid = selectedDruids[slot - 1];
+    if (druid) {
+      log(`[KEYBIND ${keys[slot - 1]}] Sent whisper to ${druid} (Slot #${slot}): "Innervate please!"`);
+    } else {
+      log(`[KEYBIND ${keys[slot - 1]}] No Druid is highlighted in Slot #${slot}!`);
+    }
+  }
+
   function toggleGrow() {
     db.growUp = !db.growUp;
     log(`Growth direction set to: ${db.growUp ? 'Upwards (^)' : 'Downwards (v)'}`);
@@ -575,7 +631,7 @@
 
   function toggleGroupState() {
     isInGroup = !isInGroup;
-    log(isInGroup ? 'Joined raid group.' : 'Left raid group. (Session druid data remains accessible!)');
+    log(isInGroup ? 'Joined raid group. (Rows updated back to active group status)' : 'Left raid group. (Session druids now marked as "(Left)" with 50% opacity)');
     renderTracker();
   }
 
@@ -584,7 +640,7 @@
     db.history = {};
     db.activeCDs = {};
     db.startTime = Math.floor(Date.now() / 1000);
-    selectedDruid = null;
+    selectedDruids = [];
     log('Stats and session time reset.');
     renderTracker();
   }

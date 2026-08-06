@@ -1,7 +1,11 @@
 <Bindings>
-    <Binding name="INNERVATETRACKER_WHISPER" category="ADDONS">
-        if InnervateTracker_WhisperSelected then
-            InnervateTracker_WhisperSelected()
-        end
+    <Binding category="ADDONS" name="INNERVATETRACKER_WHISPER1" header="INNERVATETRACKER">
+        InnervateTracker_WhisperSelected1();
+    </Binding>
+    <Binding category="ADDONS" name="INNERVATETRACKER_WHISPER2">
+        InnervateTracker_WhisperSelected2();
+    </Binding>
+    <Binding category="ADDONS" name="INNERVATETRACKER_WHISPER3">
+        InnervateTracker_WhisperSelected3();
     </Binding>
 </Bindings>

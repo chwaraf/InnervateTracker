@@ -1,8 +1,10 @@
 local addonName = ...
 
--- Keybinding Category & Binding Name Strings for WoW Options > Keybindings > AddOns
+-- Keybinding Category & Action Strings for WoW Options > Keybindings > AddOns
 _G["BINDING_HEADER_INNERVATETRACKER"] = "Innervate Tracker"
-_G["BINDING_NAME_INNERVATETRACKER_WHISPER"] = "Whisper Highlighted Druid"
+_G["BINDING_NAME_INNERVATETRACKER_WHISPER1"] = "Whisper Highlighted Druid #1 (F9)"
+_G["BINDING_NAME_INNERVATETRACKER_WHISPER2"] = "Whisper Highlighted Druid #2 (F10)"
+_G["BINDING_NAME_INNERVATETRACKER_WHISPER3"] = "Whisper Highlighted Druid #3 (F11)"
 
 -- Helper to safely get spell name across client versions
 local function GetSpellName(id)
@@ -30,6 +32,13 @@ local CLASS_COLORS = {
     HUNTER  = { r = 0.67, g = 0.83, b = 0.45 }, -- Green
     ROGUE   = { r = 1.0,  g = 0.96, b = 0.41 }, -- Yellow
     WARRIOR = { r = 0.78, g = 0.61, b = 0.43 }, -- Brown
+}
+
+-- Slot highlight colors for up to 3 highlighted Druids
+local SLOT_COLORS = {
+    [1] = { r = 1.0, g = 0.82, b = 0.0,  a = 0.35, hex = "ffd100" }, -- Slot 1: Gold / Yellow (F9)
+    [2] = { r = 0.1, g = 0.80, b = 1.0,  a = 0.35, hex = "1eb3ff" }, -- Slot 2: Cyan / Blue (F10)
+    [3] = { r = 0.2, g = 1.00, b = 0.3,  a = 0.35, hex = "30ff30" }, -- Slot 3: Bright Green (F11)
 }
 
 -- Create main frame
@@ -66,6 +75,20 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
+-- Keyboard Event Listener (Fallback Hotkey handler for F9, F10, F11)
+if f.SetPropagateKeyboardInput then
+    f:SetPropagateKeyboardInput(true)
+end
+f:SetScript("OnKeyDown", function(self, key)
+    if key == "F9" then
+        if InnervateTracker_WhisperSelected1 then InnervateTracker_WhisperSelected1() end
+    elseif key == "F10" then
+        if InnervateTracker_WhisperSelected2 then InnervateTracker_WhisperSelected2() end
+    elseif key == "F11" then
+        if InnervateTracker_WhisperSelected3 then InnervateTracker_WhisperSelected3() end
+    end
+end)
+
 -- Growth Direction Button [v] / [^] (Header)
 local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 growBtn:SetSize(16, 14)
@@ -97,10 +120,15 @@ resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 f.lines = {}
 local druidList = {}
 local isInitialized = false
-local selectedDruid = nil -- Currently highlighted Druid
+
+-- Array of up to 3 highlighted Druids: selectedDruids = { "DruidA", "DruidB", "DruidC" }
+local selectedDruids = {}
+
+-- Debounce tracking to prevent double whispers from dual trigger sources
+local lastWhisperTimes = {}
 
 -- Forward declaration
-local UpdateDisplay
+local UpdateDisplay, ScanRaidRoster
 
 local function GetShortName(fullName)
     if not fullName then return "" end
@@ -108,20 +136,46 @@ local function GetShortName(fullName)
 end
 
 local function IsUnitInRange(unit)
-    if not unit then return true end
-    if UnitIsUnit(unit, "player") then return true end
+    if not unit or UnitIsUnit(unit, "player") then return true end
+    if UnitInRange then
+        local inRange, checked = UnitInRange(unit)
+        if checked then return inRange end
+    end
     return UnitIsVisible(unit) and (CheckInteractDistance(unit, 4) == true or CheckInteractDistance(unit, 1) == true)
 end
 
--- Global function executed by Keybinding
-function InnervateTracker_WhisperSelected()
-    if selectedDruid then
-        SendChatMessage("Innervate please!", "WHISPER", nil, selectedDruid)
-        print("|cff30ff30[InnervateTracker]|r Whispered " .. selectedDruid .. ": Innervate please!")
+-- Helper to find slot index of a Druid (1, 2, 3, or nil)
+local function GetDruidSlot(druidName)
+    for idx, name in ipairs(selectedDruids) do
+        if name == druidName then
+            return idx
+        end
+    end
+    return nil
+end
+
+-- Global functions executed by Keybindings (F9, F10, F11) or Right-Click
+function InnervateTracker_WhisperSlot(slotIndex)
+    local now = GetTime and GetTime() or time()
+    -- Guard: Ignore duplicate trigger calls within 0.5 seconds
+    if lastWhisperTimes[slotIndex] and (now - lastWhisperTimes[slotIndex]) < 0.5 then
+        return
+    end
+
+    local druidName = selectedDruids[slotIndex]
+    if druidName then
+        lastWhisperTimes[slotIndex] = now
+        SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
+        print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
     else
-        print("|cffffea00[InnervateTracker]|r No Druid is highlighted! Left-click a Druid row to highlight first.")
+        lastWhisperTimes[slotIndex] = now
+        print("|cffffea00[InnervateTracker]|r No Druid is highlighted in Slot #" .. slotIndex .. "!")
     end
 end
+
+function InnervateTracker_WhisperSelected1() InnervateTracker_WhisperSlot(1) end
+function InnervateTracker_WhisperSelected2() InnervateTracker_WhisperSlot(2) end
+function InnervateTracker_WhisperSelected3() InnervateTracker_WhisperSlot(3) end
 
 local function FormatSessionTime()
     if not InnervateTrackerDB or not InnervateTrackerDB.startTime then return "S: 0m" end
@@ -156,7 +210,7 @@ local function ResetData()
     InnervateTrackerDB.history = {}
     InnervateTrackerDB.activeCDs = {}
     InnervateTrackerDB.startTime = time()
-    selectedDruid = nil
+    table.wipe(selectedDruids)
     print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
 end
 
@@ -184,14 +238,14 @@ resetBtn:SetScript("OnClick", function()
 end)
 
 local function CreateVisualRow(index)
-    local row = CreateFrame("Frame", nil, f)
+    local row = CreateFrame("Button", nil, f)
     row:SetSize(158, 14)
     row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    -- Row highlight texture for Left-Click selection
+    -- Highlight backdrop
     row.highlightBg = row:CreateTexture(nil, "BACKGROUND")
     row.highlightBg:SetAllPoints(row)
-    row.highlightBg:SetColorTexture(1.0, 0.82, 0.0, 0.25) -- Gold highlight
     row.highlightBg:Hide()
 
     row.text = row:CreateFontString(nil, "OVERLAY")
@@ -207,6 +261,7 @@ local function CreateVisualRow(index)
     row.bar:SetSize(72, 12)
     row.bar:SetPoint("RIGHT", 0, 0)
     row.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    row.bar:EnableMouse(false) -- Mouse transparent so clicks pass directly to row Button
 
     row.bar.bg = row.bar:CreateTexture(nil, "BACKGROUND")
     row.bar.bg:SetAllPoints(row.bar)
@@ -217,23 +272,31 @@ local function CreateVisualRow(index)
     row.bar.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
     row.bar.text:SetPoint("CENTER", row.bar, "CENTER", 0, 0)
 
-    -- Left Click: Highlight / Select Druid
-    -- Right Click: Whisper selected Druid
-    row:SetScript("OnMouseUp", function(self, button)
+    -- Single OnClick event on mouse release
+    row:SetScript("OnClick", function(self, button)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
 
         if button == "LeftButton" then
-            if selectedDruid == shortDruid then
-                selectedDruid = nil
+            local existingSlot = GetDruidSlot(shortDruid)
+            if existingSlot then
+                -- Unmark: Remove Druid and shift remaining slots up automatically!
+                table.remove(selectedDruids, existingSlot)
             else
-                selectedDruid = shortDruid
+                -- Mark: Insert into next available slot (max 3 slots)
+                if #selectedDruids < 3 then
+                    table.insert(selectedDruids, shortDruid)
+                else
+                    -- Replace 3rd slot if 3 are already selected
+                    selectedDruids[3] = shortDruid
+                end
             end
             if UpdateDisplay then UpdateDisplay() end
 
         elseif button == "RightButton" then
-            if selectedDruid == shortDruid then
-                InnervateTracker_WhisperSelected()
+            local slotIndex = GetDruidSlot(shortDruid)
+            if slotIndex then
+                InnervateTracker_WhisperSlot(slotIndex)
             end
         end
     end)
@@ -248,11 +311,15 @@ local function CreateVisualRow(index)
         local totalCasts = InnervateTrackerDB and InnervateTrackerDB.casts and InnervateTrackerDB.casts[shortDruid] or 0
         GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.49, 0.04)
 
-        local bindKey = GetBindingKey("INNERVATETRACKER_WHISPER") or "F9"
-        if selectedDruid == shortDruid then
-            GameTooltip:AddLine("★ Highlighted (Press " .. bindKey .. " or Right-click to whisper)", 1, 0.82, 0)
+        local slotIndex = GetDruidSlot(shortDruid)
+        local bindKeys = { "F9", "F10", "F11" }
+        
+        if slotIndex then
+            local keyName = (GetBindingKey and GetBindingKey("INNERVATETRACKER_WHISPER" .. slotIndex)) or bindKeys[slotIndex] or ("F" .. (8 + slotIndex))
+            local colorHex = SLOT_COLORS[slotIndex] and SLOT_COLORS[slotIndex].hex or "ffd100"
+            GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Press %s or Right-click)|r", colorHex, slotIndex, keyName))
         else
-            GameTooltip:AddLine("Left-click to highlight (" .. bindKey .. " to whisper)", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine("Left-click to highlight (Slot 1: F9, Slot 2: F10, Slot 3: F11)", 0.6, 0.6, 0.6)
         end
 
         local cdData = InnervateTrackerDB and InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[shortDruid]
@@ -288,7 +355,7 @@ local function CreateVisualRow(index)
     return row
 end
 
-local function ScanRaidRoster()
+ScanRaidRoster = function()
     table.wipe(druidList)
 
     -- 1. Current group druids
@@ -304,6 +371,7 @@ local function ScanRaidRoster()
                 if class == "DRUID" then
                     druidList[shortName] = {
                         unit = unit,
+                        inGroup = true,
                         isDead = UnitIsDeadOrGhost(unit),
                         isOffline = not UnitIsConnected(unit),
                         inRange = IsUnitInRange(unit)
@@ -318,6 +386,7 @@ local function ScanRaidRoster()
             if name then
                 druidList[GetShortName(name)] = {
                     unit = "player",
+                    inGroup = true,
                     isDead = UnitIsDeadOrGhost("player"),
                     isOffline = false,
                     inRange = true
@@ -326,14 +395,14 @@ local function ScanRaidRoster()
         end
     end
 
-    -- 2. Retain all druids who recorded casts during this session
+    -- 2. Retain all druids who recorded casts during this session (marked as inGroup = false if absent)
     if InnervateTrackerDB then
         local tables = { InnervateTrackerDB.casts, InnervateTrackerDB.activeCDs, InnervateTrackerDB.history }
         for _, tbl in ipairs(tables) do
             if tbl then
                 for name in pairs(tbl) do
                     if not druidList[name] then
-                        druidList[name] = { unit = nil, isDead = false, isOffline = false, inRange = false }
+                        druidList[name] = { unit = nil, inGroup = false, isDead = false, isOffline = false, inRange = false }
                     end
                 end
             end
@@ -347,7 +416,6 @@ UpdateDisplay = function()
     UpdateHeaderLayout()
     title:SetText(FormatSessionTime())
 
-    for _, row in ipairs(f.lines) do row:Hide() end
     local index = 1
     local currentTime = time()
     local isUp = InnervateTrackerDB.growUp
@@ -376,28 +444,48 @@ UpdateDisplay = function()
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
         local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
 
-        -- Highlight selection check
-        if selectedDruid == name then
+        -- Multi-Slot Highlight color check (Gold for Slot 1, Cyan for Slot 2, Green for Slot 3)
+        local slotIndex = GetDruidSlot(name)
+        if slotIndex and SLOT_COLORS[slotIndex] then
+            local col = SLOT_COLORS[slotIndex]
+            row.highlightBg:SetColorTexture(col.r, col.g, col.b, col.a)
             row.highlightBg:Show()
         else
             row.highlightBg:Hide()
         end
 
-        -- Status & Range Opacity handling
+        -- Status, Range Opacity & Absent / Off / Dead Indicator handling
         local isRangeOk = not druidData or druidData.unit == nil or druidData.inRange
 
-        if druidData and druidData.isOffline then
+        if druidData and not druidData.inGroup then
+            -- Druid is Absent (Left group / not in party) -> Muted Purple/Dusty Rose
+            row.text:SetText(string.format("%s (Absent)", name))
+            row.text:SetTextColor(0.65, 0.45, 0.65)
+            row:SetAlpha(0.5)
+            row.bar:SetAlpha(0.5)
+        elseif druidData and druidData.isOffline then
+            -- Druid is Offline -> Gray
             row.text:SetText(string.format("%s (Off)", name))
             row.text:SetTextColor(0.5, 0.5, 0.5)
             row:SetAlpha(0.5)
+            row.bar:SetAlpha(0.5)
         elseif druidData and druidData.isDead then
+            -- Druid is Dead -> Dark Red
             row.text:SetText(string.format("%s (Dead)", name))
-            row.text:SetTextColor(0.7, 0.2, 0.2)
+            row.text:SetTextColor(0.75, 0.2, 0.2)
             row:SetAlpha(0.6)
+            row.bar:SetAlpha(0.6)
         else
+            -- Active Druid in group
             row.text:SetText(string.format("%s (%d)", name, casts))
             row.text:SetTextColor(1.0, 0.49, 0.04)
-            row:SetAlpha(isRangeOk and 1.0 or 0.4)
+            if isRangeOk then
+                row:SetAlpha(1.0)
+                row.bar:SetAlpha(1.0)
+            else
+                row:SetAlpha(0.35)
+                row.bar:SetAlpha(0.35)
+            end
         end
 
         if remainingBuff > 0 then
@@ -441,6 +529,11 @@ UpdateDisplay = function()
         index = index + 1
     end
 
+    -- Hide any extra unused rows
+    for i = index, #f.lines do
+        if f.lines[i] then f.lines[i]:Hide() end
+    end
+
     if index == 1 then
         f:SetHeight(22)
     else
@@ -460,14 +553,21 @@ f:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 local function SetupDefaultKeybind()
-    if GetBindingKey and SetBinding and SaveBindings then
-        local currentKey = GetBindingKey("INNERVATETRACKER_WHISPER")
-        if not currentKey and not InnervateTrackerDB.defaultKeySet then
-            SetBinding("F9", "INNERVATETRACKER_WHISPER")
-            local setID = GetCurrentBindingSet and GetCurrentBindingSet() or 1
-            SaveBindings(setID)
-            InnervateTrackerDB.defaultKeySet = true
+    if SetBinding and SaveBindings then
+        local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
+        if not currentSet or currentSet == 0 then currentSet = 1 end
+
+        if GetBindingKey and not GetBindingKey("INNERVATETRACKER_WHISPER1") then
+            SetBinding("F9", "INNERVATETRACKER_WHISPER1")
         end
+        if GetBindingKey and not GetBindingKey("INNERVATETRACKER_WHISPER2") then
+            SetBinding("F10", "INNERVATETRACKER_WHISPER2")
+        end
+        if GetBindingKey and not GetBindingKey("INNERVATETRACKER_WHISPER3") then
+            SetBinding("F11", "INNERVATETRACKER_WHISPER3")
+        end
+
+        SaveBindings(currentSet)
     end
 end
 
@@ -507,6 +607,16 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
         ResetData()
         ScanRaidRoster()
         UpdateDisplay()
+    elseif msg == "bind" then
+        local currentSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1
+        if not currentSet or currentSet == 0 then currentSet = 1 end
+
+        SetBinding("F9", "INNERVATETRACKER_WHISPER1")
+        SetBinding("F10", "INNERVATETRACKER_WHISPER2")
+        SetBinding("F11", "INNERVATETRACKER_WHISPER3")
+        SaveBindings(currentSet)
+
+        print("|cff30ff30[InnervateTracker]|r Force-bound F9, F10, F11 to Slot 1, 2, 3!")
     elseif msg == "lock" then
         InnervateTrackerDB.locked = not InnervateTrackerDB.locked
         print("|cffffea00Innervate Tracker:|r Frame " .. (InnervateTrackerDB.locked and "|cffff0000Locked|r" or "|cff30ff30Unlocked|r"))
@@ -516,14 +626,17 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
     else
         print("|cffffea00Innervate Tracker usage:|r")
         print("  /it reset - resets counters and session time.")
+        print("  /it bind  - force-binds default keys (F9, F10, F11).")
         print("  /it lock  - locks / unlocks frame dragging.")
         print("  /it sound - toggles sound alert when Innervate becomes Ready.")
-        print("  Keybind: Options > Keybindings > AddOns > Innervate Tracker (Default: F9)")
+        print("  Keybinds: Options > Keybindings > AddOns > Innervate Tracker (F9, F10, F11)")
     end
 end
 
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:RegisterEvent("UPDATE_BINDINGS")
 f:RegisterEvent("GROUP_ROSTER_UPDATE")
 f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
@@ -533,7 +646,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         if loadedAddon == addonName or loadedAddon == "InnervateTracker" then
             InitDB()
         end
-    elseif event == "PLAYER_LOGIN" then
+    elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_BINDINGS" then
         InitDB()
         SetupDefaultKeybind()
     elseif event == "GROUP_ROSTER_UPDATE" then

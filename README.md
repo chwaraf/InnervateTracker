@@ -11,14 +11,16 @@
   * **0 – 20s (Active Buff)**: Replaces `Ready` with a cyan bar displaying the target's nick and buff duration (e.g. `PriestA 18s`).
   * **20 – 360s (Cooldown)**: Displays a red/orange bar counting down the Druid's remaining cooldown (e.g. `5m30s`).
   * **360s+ (Ready)**: Shows green `Ready` text.
-* **Persistent Data (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, and active cooldown timers **persist seamlessly across `/reload` and relogs**.
-* **Data Access After Group Leave**: Druid records and cast history remain visible even if players or Druids leave the party/raid, until you click `[R]` (Reset).
-* **Dynamic Growth Direction (`[v]` / `[^]`)**: Click `[v]` or `[^]` on the top-left of the header to toggle whether rows grow **Upwards** (header at bottom) or **Downwards** (header at top).
+* **Persistent Data (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, and active cooldown timers **persist seamlessly across `/reload` and logouts**.
+* **Left Group Indicator & Rejoin Logic**:
+  * If a Druid leaves the party/raid (or if you leave), their row remains accessible as `DruidNick (Left)` in gray text with 50% opacity.
+  * When they or you rejoin the group, it automatically updates back to active status `DruidNick (2)`.
+* **Dynamic Growth Direction (`[v]` / `[^]`)**: Click `[v]` or `[^]` on the header bar to toggle whether rows grow **Upwards** (header fixed at bottom) or **Downwards** (header fixed at top).
 * **Click-to-Highlight & Whisper Keybind (`F9`)**:
-  * **Left-click** a Druid row to **Highlight** them in gold.
-  * **Right-click** or press **`F9`** (configurable under `Options > Keybindings > AddOns > Innervate Tracker`) to whisper: `"Innervate please!"`.
-* **Range & Status Fading**:
-  * Fades out-of-range Druids to **40% opacity**.
+  * **Left-click** any Druid row/bar to toggle a **gold highlight** mark on/off.
+  * **Right-click** or press **`F9`** (configurable under `Options > Keybindings > AddOns > Innervate Tracker`) while highlighted to whisper: `"Innervate please!"`.
+* **Range Fading & Status Indicators**:
+  * Automatically fades out-of-range Druids (>40yd) to **35% opacity**.
   * Shows `(Dead)` or `(Off)` status indicators for dead or disconnected Druids.
 * **Mouseover GameTooltip**: Hover over any Druid row to view a detailed breakdown of who received Innervate from them and how many times, formatted with class-colored names.
 * **Sound Alerts**: Emits a subtle Ready Check audio alert when an Innervate comes off cooldown.
@@ -36,7 +38,7 @@
    * `InnervateTracker.toc`
    * `Bindings.xml`
    * `InnervateTracker.lua`
-4. **Restart World of Warcraft completely** for the client to register the `.toc` SavedVariables.
+4. **Restart World of Warcraft completely** for the client to register the `.toc` SavedVariables and Keybindings XML.
 
 ---
 
