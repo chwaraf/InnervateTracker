@@ -8,13 +8,13 @@
 
 * **Squeezed & Compact Window (170px)**: Extremely compact UI footprint with bold, crisp, readable fonts (`OUTLINE`).
 * **Raid Role Icons & Name Truncation**:
-  * Displays group role icons (🛡️ Tank, 💚 Healer, ⚔️ Damage) to the left of each Druid's name.
-  * Truncates Druid names longer than 7 characters with a `*` suffix (e.g. `Malfurion` ➔ `Malfuri*`) to maximize space.
+  * Displays official Blizzard group role icons (🛡️ Tank, 💚 Healer, ⚔️ Damage) to the left of each Druid's name.
+  * Truncates Druid names longer than 7 characters with a `*` suffix (e.g. `Malfurion` ➔ `Malfuri*`) to maximize horizontal space.
 * **2-Phase Visual Cooldown Flow**:
   * **0 – 20s (Active Buff)**: Replaces `Ready` with a cyan bar displaying the target's nick and buff duration (e.g. `PriestA 18s`).
   * **20 – 360s (Cooldown)**: Displays a red/orange bar counting down the Druid's remaining cooldown (e.g. `5m30s`).
   * **360s+ (Ready)**: Shows green `Ready` text.
-* **Persistent Data (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, and active cooldown timers **persist seamlessly across `/reload` and logouts**.
+* **Persistent Data & Marked Druids (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, active cooldown timers, and marked Druid highlights **persist seamlessly across `/reload` and logouts**.
 * **3-Slot Multi-Highlight & Dynamic Keybindings**:
   * **Slot 1 (Default: `F9`)**: Gold / Yellow Highlight (`#ffd100`).
   * **Slot 2 (Default: `F10`)**: Cyan / Blue Highlight (`#1eb3ff`).
@@ -24,7 +24,7 @@
   * **`(Absent)`**: Displayed in **Muted Purple (`#a673a6`)** when a Druid has left the party/raid group. Whispers are automatically blocked for absent Druids.
   * **`(Off)`**: Displayed in **Gray** for offline Druids.
   * **`(Dead)`**: Displayed in **Dark Red** for dead or ghost Druids.
-* **Range Fading (40yd Range Check)**: Automatically fades out-of-range Druids (>40yd) to **35% opacity**.
+* **Range Fading (40yd Range Check)**: Fades out-of-range Druids (>40yd) to **65% opacity**, keeping text crisp and readable.
 * **Dynamic Growth Direction (`[v]` / `[^]`)**: Click `[v]` or `[^]` on the header bar to toggle whether rows grow **Upwards** (header fixed at bottom) or **Downwards** (header fixed at top).
 * **Mouseover GameTooltip**: Hover over any Druid row to view a detailed breakdown of who received Innervate from them and how many times, formatted with class-colored names.
 * **Sound Alerts**: Emits a subtle Ready Check audio alert when an Innervate comes off cooldown.

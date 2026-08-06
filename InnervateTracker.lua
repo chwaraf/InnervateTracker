@@ -155,6 +155,34 @@ local function IsUnitInRange(unit)
     return UnitIsVisible(unit) and (CheckInteractDistance(unit, 4) == true or CheckInteractDistance(unit, 1) == true)
 end
 
+-- Detect Role from Unit or PowerType (Rage = TANK, Energy = DAMAGER, Mana = HEALER/DAMAGER)
+local function DetectUnitRole(unit)
+    if not unit then return "HEALER" end
+    
+    -- 1. Check LFG / Party Frame Assigned Role
+    if UnitGroupRolesAssigned then
+        local assigned = UnitGroupRolesAssigned(unit)
+        if assigned and assigned ~= "NONE" then
+            return assigned
+        end
+    end
+    
+    -- 2. Check MainTank Raid Assignment
+    if GetPartyAssignment and GetPartyAssignment("MAINTANK", unit) then
+        return "TANK"
+    end
+    
+    -- 3. Check Druid Shapeshift Form / Power Type (1 = Rage / Bear, 3 = Energy / Cat)
+    local pType = UnitPowerType(unit)
+    if pType == 1 then
+        return "TANK"
+    elseif pType == 3 then
+        return "DAMAGER"
+    end
+    
+    return "HEALER"
+end
+
 -- Helper to find slot index of a Druid (1, 2, 3, or nil)
 local function GetDruidSlot(druidName)
     for idx, name in ipairs(selectedDruids) do
@@ -165,6 +193,13 @@ local function GetDruidSlot(druidName)
     return nil
 end
 
+-- Sync selectedDruids with SavedVariables
+local function SyncSelectedDruids()
+    if InnervateTrackerDB then
+        InnervateTrackerDB.selectedDruids = selectedDruids
+    end
+end
+
 -- Global functions executed by Keybindings (F9, F10, F11) or Right-Click
 function InnervateTracker_WhisperSlot(slotIndex)
     local now = GetTime and GetTime() or time()
@@ -172,6 +207,7 @@ function InnervateTracker_WhisperSlot(slotIndex)
     if lastWhisperTimes[slotIndex] and (now - lastWhisperTimes[slotIndex]) < 0.5 then
         return
     end
+    lastWhisperTimes[slotIndex] = now -- Immediately set timestamp to block duplicate triggers
 
     local druidName = selectedDruids[slotIndex]
     if not druidName then
@@ -185,7 +221,6 @@ function InnervateTracker_WhisperSlot(slotIndex)
         return
     end
 
-    lastWhisperTimes[slotIndex] = now
     SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
     print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
 end
@@ -228,6 +263,7 @@ local function ResetData()
     InnervateTrackerDB.activeCDs = {}
     InnervateTrackerDB.startTime = time()
     table.wipe(selectedDruids)
+    SyncSelectedDruids()
     print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
 end
 
@@ -270,17 +306,9 @@ local function CreateVisualRow(index)
     row.roleIcon:SetSize(11, 11)
     row.roleIcon:SetPoint("LEFT", 2, 0)
 
-    row.text = row:CreateFontString(nil, "OVERLAY")
-    row.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-    row.text:SetPoint("LEFT", row.roleIcon, "RIGHT", 2, 0)
-    row.text:SetTextColor(1.0, 0.49, 0.04)
-
-    row.readyText = row:CreateFontString(nil, "OVERLAY")
-    row.readyText:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-    row.readyText:SetPoint("RIGHT", 0, 0)
-
+    -- Status Bar
     row.bar = CreateFrame("StatusBar", nil, row)
-    row.bar:SetSize(72, 12)
+    row.bar:SetSize(68, 12)
     row.bar:SetPoint("RIGHT", 0, 0)
     row.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     row.bar:EnableMouse(false) -- Mouse transparent so clicks pass directly to row Button
@@ -293,6 +321,17 @@ local function CreateVisualRow(index)
     row.bar.text = row.bar:CreateFontString(nil, "OVERLAY")
     row.bar.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
     row.bar.text:SetPoint("CENTER", row.bar, "CENTER", 0, 0)
+
+    row.readyText = row:CreateFontString(nil, "OVERLAY")
+    row.readyText:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+    row.readyText:SetPoint("RIGHT", 0, 0)
+
+    -- Left text bounded on LEFT by roleIcon and RIGHT by bar to prevent ANY overlap!
+    row.text = row:CreateFontString(nil, "OVERLAY")
+    row.text:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+    row.text:SetPoint("LEFT", row.roleIcon, "RIGHT", 2, 0)
+    row.text:SetPoint("RIGHT", row.bar, "LEFT", -2, 0)
+    row.text:SetJustifyH("LEFT")
 
     -- Single OnClick event on mouse release
     row:SetScript("OnClick", function(self, button)
@@ -313,6 +352,7 @@ local function CreateVisualRow(index)
                     selectedDruids[3] = shortDruid
                 end
             end
+            SyncSelectedDruids()
             if UpdateDisplay then UpdateDisplay() end
 
         elseif button == "RightButton" then
@@ -391,15 +431,9 @@ ScanRaidRoster = function()
                 local shortName = GetShortName(name)
                 local _, class = UnitClass(unit)
                 if class == "DRUID" then
-                    local role = "HEALER" -- Default Druid role in raids
-                    if UnitGroupRolesAssigned then
-                        local assigned = UnitGroupRolesAssigned(unit)
-                        if assigned and assigned ~= "NONE" then
-                            role = assigned
-                        end
-                    end
-                    if GetPartyAssignment and GetPartyAssignment("MAINTANK", unit) then
-                        role = "TANK"
+                    local role = DetectUnitRole(unit)
+                    if InnervateTrackerDB and InnervateTrackerDB.roles and InnervateTrackerDB.roles[shortName] then
+                        role = InnervateTrackerDB.roles[shortName]
                     end
                     druidList[shortName] = {
                         unit = unit,
@@ -417,14 +451,12 @@ ScanRaidRoster = function()
         if class == "DRUID" then
             local name = UnitName("player")
             if name then
-                local role = "HEALER"
-                if UnitGroupRolesAssigned then
-                    local assigned = UnitGroupRolesAssigned("player")
-                    if assigned and assigned ~= "NONE" then
-                        role = assigned
-                    end
+                local shortName = GetShortName(name)
+                local role = DetectUnitRole("player")
+                if InnervateTrackerDB and InnervateTrackerDB.roles and InnervateTrackerDB.roles[shortName] then
+                    role = InnervateTrackerDB.roles[shortName]
                 end
-                druidList[GetShortName(name)] = {
+                druidList[shortName] = {
                     unit = "player",
                     role = role,
                     inGroup = true,
@@ -443,10 +475,19 @@ ScanRaidRoster = function()
             if tbl then
                 for name in pairs(tbl) do
                     if not druidList[name] then
-                        druidList[name] = { unit = nil, role = "HEALER", inGroup = false, isDead = false, isOffline = false, inRange = false }
+                        local role = (InnervateTrackerDB.roles and InnervateTrackerDB.roles[name]) or "HEALER"
+                        druidList[name] = { unit = nil, role = role, inGroup = false, isDead = false, isOffline = false, inRange = false }
                     end
                 end
             end
+        end
+    end
+
+    -- 3. Always retain highlighted Druids in selectedDruids
+    for _, name in ipairs(selectedDruids) do
+        if not druidList[name] then
+            local role = (InnervateTrackerDB and InnervateTrackerDB.roles and InnervateTrackerDB.roles[name]) or "HEALER"
+            druidList[name] = { unit = nil, role = role, inGroup = false, isDead = false, isOffline = false, inRange = false }
         end
     end
 end
@@ -485,9 +526,9 @@ UpdateDisplay = function()
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
         local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
 
-        -- Role Icon Handling using Blizzard's official FrameXML LFG Icon Texture
+        -- Role Icon Handling using Blizzard's official LFG Icon Texture (Spelled PORTRAITROLES)
         local role = druidData and druidData.role or "HEALER"
-        row.roleIcon:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITOLES")
+        row.roleIcon:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES")
         if role == "TANK" then
             row.roleIcon:SetTexCoord(0, 0.28125, 0.28125, 0.5625)
         elseif role == "DAMAGER" then
@@ -515,74 +556,68 @@ UpdateDisplay = function()
         local isRangeOk = not druidData or druidData.unit == nil or druidData.inRange
 
         if druidData and not druidData.inGroup then
-            -- Druid is Absent (Left group) -> Hide right-side bar/ready text to prevent text overlap!
+            -- Druid is Absent (Left group) -> Muted Purple
             row.text:SetText(string.format("%s (Absent)", displayName))
             row.text:SetTextColor(0.65, 0.45, 0.65)
             row:SetAlpha(0.5)
-            row.bar:Hide()
-            row.readyText:Hide()
         elseif druidData and druidData.isOffline then
-            -- Druid is Offline -> Hide right-side bar/ready text to prevent text overlap!
+            -- Druid is Offline -> Gray
             row.text:SetText(string.format("%s (Off)", displayName))
             row.text:SetTextColor(0.5, 0.5, 0.5)
             row:SetAlpha(0.5)
-            row.bar:Hide()
-            row.readyText:Hide()
         elseif druidData and druidData.isDead then
-            -- Druid is Dead -> Hide right-side bar/ready text to prevent text overlap!
+            -- Druid is Dead -> Dark Red
             row.text:SetText(string.format("%s (Dead)", displayName))
             row.text:SetTextColor(0.75, 0.2, 0.2)
             row:SetAlpha(0.6)
-            row.bar:Hide()
-            row.readyText:Hide()
         else
             -- Active Druid in group
             row.text:SetText(string.format("%s (%d)", displayName, casts))
             row.text:SetTextColor(1.0, 0.49, 0.04)
             if isRangeOk then
                 row:SetAlpha(1.0)
-                row.bar:SetAlpha(1.0)
             else
-                row:SetAlpha(0.35)
-                row.bar:SetAlpha(0.35)
+                -- Out of Range -> Sharp, readable 0.65 alpha fade
+                row:SetAlpha(0.65)
             end
+        end
 
-            if remainingBuff > 0 then
-                -- Active Buff (0-20s)
-                row.readyText:Hide()
-                row.bar:Show()
-                row.bar:SetMinMaxValues(0, INNERVATE_BUFF_DURATION)
-                row.bar:SetValue(remainingBuff)
-                row.bar:SetStatusBarColor(0.1, 0.7, 1.0, 0.9)
+        -- Right side Cooldown / Ready Status Bar
+        if remainingBuff > 0 then
+            -- Active Buff (0-20s)
+            row.readyText:Hide()
+            row.bar:Show()
+            row.bar:SetMinMaxValues(0, INNERVATE_BUFF_DURATION)
+            row.bar:SetValue(remainingBuff)
+            row.bar:SetStatusBarColor(0.1, 0.7, 1.0, 0.9)
 
-                local targetNick = FormatDruidDisplayName(cdData.target or "Unknown")
-                row.bar.text:SetText(string.format("%s %ds", targetNick, math.ceil(remainingBuff)))
+            local targetNick = FormatDruidDisplayName(cdData.target or "Unknown")
+            row.bar.text:SetText(string.format("%s %ds", targetNick, math.ceil(remainingBuff)))
 
-            elseif remainingCD > 0 then
-                -- Cooldown Phase (20-360s)
-                row.readyText:Hide()
-                row.bar:Show()
-                row.bar:SetMinMaxValues(0, INNERVATE_CD - INNERVATE_BUFF_DURATION)
-                row.bar:SetValue(remainingCD)
-                row.bar:SetStatusBarColor(1.0, 0.3, 0.3, 0.8)
+        elseif remainingCD > 0 then
+            -- Cooldown Phase (20-360s)
+            row.readyText:Hide()
+            row.bar:Show()
+            row.bar:SetMinMaxValues(0, INNERVATE_CD - INNERVATE_BUFF_DURATION)
+            row.bar:SetValue(remainingCD)
+            row.bar:SetStatusBarColor(1.0, 0.3, 0.3, 0.8)
 
-                local mins = math.floor(remainingCD / 60)
-                local secs = math.floor(remainingCD % 60)
-                row.bar.text:SetText(string.format("%dm%02ds", mins, secs))
+            local mins = math.floor(remainingCD / 60)
+            local secs = math.floor(remainingCD % 60)
+            row.bar.text:SetText(string.format("%dm%02ds", mins, secs))
 
-            else
-                -- Ready
-                if cdData then
-                    if InnervateTrackerDB.soundAlert and cdData.soundPlayed ~= true then
-                        PlaySound(5274) -- SoundKit.ReadyCheck
-                        cdData.soundPlayed = true
-                    end
-                    InnervateTrackerDB.activeCDs[name] = nil
+        else
+            -- Ready
+            if cdData then
+                if InnervateTrackerDB.soundAlert and cdData.soundPlayed ~= true then
+                    PlaySound(5274) -- SoundKit.ReadyCheck
+                    cdData.soundPlayed = true
                 end
-                row.bar:Hide()
-                row.readyText:SetText("|cff30ff30Ready|r")
-                row.readyText:Show()
+                InnervateTrackerDB.activeCDs[name] = nil
             end
+            row.bar:Hide()
+            row.readyText:SetText("|cff30ff30Ready|r")
+            row.readyText:Show()
         end
 
         row:Show()
@@ -651,7 +686,15 @@ local function InitDB()
     if not InnervateTrackerDB.casts then InnervateTrackerDB.casts = {} end
     if not InnervateTrackerDB.history then InnervateTrackerDB.history = {} end
     if not InnervateTrackerDB.activeCDs then InnervateTrackerDB.activeCDs = {} end
+    if not InnervateTrackerDB.roles then InnervateTrackerDB.roles = {} end
     if InnervateTrackerDB.soundAlert == nil then InnervateTrackerDB.soundAlert = true end
+
+    -- Restore saved marked (highlighted) Druids across /reload and relogs
+    if InnervateTrackerDB.selectedDruids and type(InnervateTrackerDB.selectedDruids) == "table" then
+        selectedDruids = InnervateTrackerDB.selectedDruids
+    else
+        InnervateTrackerDB.selectedDruids = selectedDruids
+    end
 
     if not InnervateTrackerDB.startTime or InnervateTrackerDB.startTime == 0 then
         InnervateTrackerDB.startTime = time()
