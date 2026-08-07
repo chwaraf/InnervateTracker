@@ -75,20 +75,6 @@ f:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Safe Keyboard Event Listener for F9, F10, F11 fallback (never touches WoW keybinding files)
-if f.SetPropagateKeyboardInput then
-    f:SetPropagateKeyboardInput(true)
-end
-f:SetScript("OnKeyDown", function(self, key)
-    if key == "F9" then
-        if InnervateTracker_WhisperSelected1 then InnervateTracker_WhisperSelected1() end
-    elseif key == "F10" then
-        if InnervateTracker_WhisperSelected2 then InnervateTracker_WhisperSelected2() end
-    elseif key == "F11" then
-        if InnervateTracker_WhisperSelected3 then InnervateTracker_WhisperSelected3() end
-    end
-end)
-
 -- Growth Direction Button [v] / [^] (Header)
 local growBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 growBtn:SetSize(16, 14)
@@ -145,18 +131,61 @@ local function FormatDruidDisplayName(fullName)
     end
 end
 
--- Exact 30-yard Innervate Cast Range Check
+-- Exact 30-yard Range Check across player classes
+local cached30YardSpell = nil
+
+local function Get30YardRangeSpell()
+    if cached30YardSpell then return cached30YardSpell end
+    
+    local _, playerClass = UnitClass("player")
+    local candidates = {
+        DRUID   = { 29166, 1126, 2893, 2782 },   -- Innervate, Mark of the Wild, Abolish Poison, Remove Curse
+        MAGE    = { 1459, 604, 602, 475 },       -- Arcane Intellect, Dampen Magic, Amplify Magic, Remove Lesser Curse
+        PRIEST  = { 1243, 17, 528, 522 },        -- Power Word: Fortitude, Power Word: Shield, Dispel Magic, Cure Disease
+        PALADIN = { 19740, 19742, 20217, 4987 }, -- Blessing of Might, Blessing of Wisdom, Blessing of Kings, Cleanse
+        SHAMAN  = { 526, 2870 },                 -- Cure Poison, Cure Disease
+        WARLOCK = { 5697, 132 },                 -- Unending Breath, Detect Invisibility
+    }
+    
+    local spellIDs = candidates[playerClass] or {}
+    for _, id in ipairs(spellIDs) do
+        local name = GetSpellName(id)
+        if name and IsSpellInRange and IsSpellInRange(name, "player") ~= nil then
+            cached30YardSpell = name
+            return cached30YardSpell
+        end
+    end
+    
+    local nameCandidates = {
+        MAGE    = { "Arcane Intellect", "Dampen Magic", "Amplify Magic", "Remove Lesser Curse" },
+        DRUID   = { "Innervate", "Mark of the Wild", "Remove Curse", "Abolish Poison" },
+        PRIEST  = { "Power Word: Fortitude", "Power Word: Shield", "Dispel Magic", "Cure Disease" },
+        PALADIN = { "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings", "Cleanse", "Purify" },
+        SHAMAN  = { "Cure Poison", "Cure Disease" },
+        WARLOCK = { "Unending Breath", "Detect Invisibility" },
+    }
+    local names = nameCandidates[playerClass] or {}
+    for _, name in ipairs(names) do
+        if name and IsSpellInRange and IsSpellInRange(name, "player") ~= nil then
+            cached30YardSpell = name
+            return cached30YardSpell
+        end
+    end
+    
+    return nil
+end
+
 local function IsUnitInInnervateRange(unit)
     if not unit or UnitIsUnit(unit, "player") then return true end
     
-    -- 1. Check direct 30-yard spell range if player is a Druid
-    if IsSpellInRange then
-        local inRange = IsSpellInRange(INNERVATE_NAME, unit)
+    local spell30 = Get30YardRangeSpell()
+    if spell30 and IsSpellInRange then
+        local inRange = IsSpellInRange(spell30, unit)
         if inRange == 1 then return true end
         if inRange == 0 then return false end
     end
     
-    -- 2. Fallback check for non-Druid classes: Follow Distance (~28-30 yards) & Visibility
+    -- Fallback for non-mana classes or characters without a 30-yard friendly spell
     return UnitIsVisible(unit) and CheckInteractDistance(unit, 4) == true
 end
 
@@ -308,7 +337,8 @@ resetBtn:SetScript("OnClick", function()
 end)
 
 local function CreateVisualRow(index)
-    local row = CreateFrame("Button", nil, f)
+    -- Created as a SecureActionButtonTemplate for 100% taint-free native C++ right-click whispers
+    local row = CreateFrame("Button", nil, f, "SecureActionButtonTemplate")
     row:SetSize(158, 14)
     row:EnableMouse(true)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -353,7 +383,7 @@ local function CreateVisualRow(index)
     row.text:SetJustifyH("LEFT")
     row.text:SetWordWrap(false) -- FORCE SINGLE LINE ONLY (PREVENT 2-LINE WRAPPING)
 
-    -- Single OnClick event on mouse release
+    -- OnClick ONLY handles LeftButton for marking/unmarking (Right-Click handled natively by C++ SecureActionButtonTemplate!)
     row:SetScript("OnClick", function(self, button)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
@@ -374,12 +404,6 @@ local function CreateVisualRow(index)
             end
             SyncSelectedDruids()
             if UpdateDisplay then UpdateDisplay() end
-
-        elseif button == "RightButton" then
-            local slotIndex = GetDruidSlot(shortDruid)
-            if slotIndex then
-                InnervateTracker_WhisperSlot(slotIndex)
-            end
         end
     end)
 
@@ -394,7 +418,6 @@ local function CreateVisualRow(index)
         GameTooltip:AddLine(shortDruid .. " (Casts: " .. totalCasts .. ")", 1, 0.49, 0.04)
 
         local slotIndex = GetDruidSlot(shortDruid)
-        local bindKeys = { "F9", "F10", "F11" }
         
         if slotIndex then
             local key1, key2 = GetBindingKey and GetBindingKey("INNERVATETRACKER_WHISPER" .. slotIndex)
@@ -552,6 +575,12 @@ UpdateDisplay = function()
         local remainingCD = INNERVATE_CD - elapsed
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
         local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
+
+        -- Set Secure Action attributes for native 100% taint-free Right-Click whisper in C++
+        if not (InCombatLockdown and InCombatLockdown()) then
+            row:SetAttribute("type2", "macro")
+            row:SetAttribute("macrotext2", "/w " .. name .. " Innervate please!")
+        end
 
         -- Role Icon Handling using Blizzard's official LFG Icon Texture (Spelled PORTRAITROLES)
         local role = druidData and druidData.role or "HEALER"
@@ -727,7 +756,7 @@ SlashCmdList["INVERNATETRACKER"] = function(msg)
         print("  /it reset - resets counters and session time.")
         print("  /it lock  - locks / unlocks frame dragging.")
         print("  /it sound - toggles sound alert when Innervate becomes Ready.")
-        print("  Keybinds: Options > Keybindings > AddOns > Innervate Tracker (F9, F10, F11)")
+        print("  Keybinds: Options > Keybindings > AddOns > Innervate Tracker")
     end
 end
 
