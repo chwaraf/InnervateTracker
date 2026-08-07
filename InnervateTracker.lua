@@ -405,7 +405,7 @@ local function CreateVisualRow(index)
                 local keyText = GetBindingText and GetBindingText(activeKey) or activeKey
                 GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Press %s or Right-click)|r", colorHex, slotIndex, keyText))
             else
-                GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Press %s or Right-click)|r", colorHex, slotIndex, bindKeys[slotIndex] or "F9"))
+                GameTooltip:AddLine(string.format("|cff%s★ Highlighted Slot #%d (Not Bound - set key in Keybindings > AddOns)|r", colorHex, slotIndex))
             end
         else
             GameTooltip:AddLine("Left-click to highlight (Slot 1, 2, or 3)", 0.6, 0.6, 0.6)

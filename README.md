@@ -6,7 +6,7 @@
 
 ## 🌟 Key Features
 
-* **Squeezed & Compact Window (170px)**: Extremely compact UI footprint with bold, crisp, readable fonts (`OUTLINE`).
+* **Squeezed & Compact Window (170px)**: Extremely compact UI footprint with bold, crisp, readable single-line fonts (`OUTLINE`).
 * **Raid Role Icons & Name Truncation**:
   * Displays official Blizzard group role icons (🛡️ Tank, 💚 Healer, ⚔️ Damage) to the left of each Druid's name.
   * Truncates Druid names longer than 7 characters with a `*` suffix (e.g. `Malfurion` ➔ `Malfuri*`) to maximize horizontal space.
@@ -20,11 +20,12 @@
   * **Slot 2 (Default: `F10`)**: Cyan / Blue Highlight (`#1eb3ff`).
   * **Slot 3 (Default: `F11`)**: Bright Green Highlight (`#30ff30`).
   * **Smart Re-allocation**: Left-clicking to unmark a Druid automatically shifts remaining slots up, ensuring Slot 1 is always Gold (`F9`), Slot 2 is Cyan (`F10`), and Slot 3 is Green (`F11`).
+  * **Persistent Highlights**: Highlights stay locked to Druids even if they die, go offline, or leave the group.
 * **Absent, Offline & Dead Status Indicators**:
   * **`(Absent)`**: Displayed in **Muted Purple (`#a673a6`)** when a Druid has left the party/raid group. Whispers are automatically blocked for absent Druids.
   * **`(Off)`**: Displayed in **Gray** for offline Druids.
   * **`(Dead)`**: Displayed in **Dark Red** for dead or ghost Druids.
-* **Range Fading (40yd Range Check)**: Fades out-of-range Druids (>40yd) to **65% opacity**, keeping text crisp and readable.
+* **Range Fading (30yd Innervate Range Check)**: Fades out-of-range Druids (>30yd) to **65% opacity**, keeping text crisp and readable.
 * **Dynamic Growth Direction (`[v]` / `[^]`)**: Click `[v]` or `[^]` on the header bar to toggle whether rows grow **Upwards** (header fixed at bottom) or **Downwards** (header fixed at top).
 * **Mouseover GameTooltip**: Hover over any Druid row to view a detailed breakdown of who received Innervate from them and how many times, formatted with class-colored names.
 * **Sound Alerts**: Emits a subtle Ready Check audio alert when an Innervate comes off cooldown.
@@ -62,7 +63,7 @@
 | Command | Description |
 | :--- | :--- |
 | `/it reset` | Resets all cast statistics, recipient history, and session time. |
-| `/it bind` | Force-binds default keys (`F9`, `F10`, `F11`) to both Account and Character settings. |
+| `/it bind` | Re-assigns default keys (`F9`, `F10`, `F11`) for the current session. |
 | `/it lock` | Toggles frame dragging lock/unlock. |
 | `/it sound` | Toggles sound alert when Innervate becomes Ready. |
 
