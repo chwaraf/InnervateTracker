@@ -337,8 +337,8 @@ resetBtn:SetScript("OnClick", function()
 end)
 
 local function CreateVisualRow(index)
-    -- Created as a SecureActionButtonTemplate for 100% taint-free native C++ right-click whispers
-    local row = CreateFrame("Button", nil, f, "SecureActionButtonTemplate")
+    -- Created as a standard unprotected Button (allowing ClearAllPoints/SetPoint during combat with zero taint)
+    local row = CreateFrame("Button", nil, f)
     row:SetSize(158, 14)
     row:EnableMouse(true)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -383,7 +383,7 @@ local function CreateVisualRow(index)
     row.text:SetJustifyH("LEFT")
     row.text:SetWordWrap(false) -- FORCE SINGLE LINE ONLY (PREVENT 2-LINE WRAPPING)
 
-    -- OnClick ONLY handles LeftButton for marking/unmarking (Right-Click handled natively by C++ SecureActionButtonTemplate!)
+    -- OnClick handles LeftButton for marking/unmarking and RightButton for whispering
     row:SetScript("OnClick", function(self, button)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
@@ -404,6 +404,29 @@ local function CreateVisualRow(index)
             end
             SyncSelectedDruids()
             if UpdateDisplay then UpdateDisplay() end
+        elseif button == "RightButton" then
+            local slotIndex = GetDruidSlot(shortDruid)
+            if slotIndex then
+                InnervateTracker_WhisperSlot(slotIndex)
+            else
+                local druidData = druidList[shortDruid]
+                if druidData and not druidData.inGroup then
+                    print("|cffffea00[InnervateTracker]|r Cannot whisper " .. shortDruid .. " (Druid is absent / left group).")
+                    return
+                end
+
+                if InCombatLockdown and InCombatLockdown() then
+                    if ChatFrame_OpenChat then
+                        ChatFrame_OpenChat("/w " .. shortDruid .. " Innervate please!")
+                    else
+                        SendChatMessage("Innervate please!", "WHISPER", nil, shortDruid)
+                        print("|cff30ff30[InnervateTracker]|r Whispered " .. shortDruid .. ": Innervate please!")
+                    end
+                else
+                    SendChatMessage("Innervate please!", "WHISPER", nil, shortDruid)
+                    print("|cff30ff30[InnervateTracker]|r Whispered " .. shortDruid .. ": Innervate please!")
+                end
+            end
         end
     end)
 
@@ -575,12 +598,6 @@ UpdateDisplay = function()
         local remainingCD = INNERVATE_CD - elapsed
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
         local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
-
-        -- Set Secure Action attributes for native 100% taint-free Right-Click whisper in C++
-        if not (InCombatLockdown and InCombatLockdown()) then
-            row:SetAttribute("type2", "macro")
-            row:SetAttribute("macrotext2", "/w " .. name .. " Innervate please!")
-        end
 
         -- Role Icon Handling using Blizzard's official LFG Icon Texture (Spelled PORTRAITROLES)
         local role = druidData and druidData.role or "HEALER"
