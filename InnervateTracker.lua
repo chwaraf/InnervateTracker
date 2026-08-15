@@ -185,8 +185,13 @@ local function IsUnitInInnervateRange(unit)
         if inRange == 0 then return false end
     end
     
-    -- Fallback for non-mana classes or characters without a 30-yard friendly spell
-    return UnitIsVisible(unit) and CheckInteractDistance(unit, 4) == true
+    -- Fallback for classes/levels without a known 30-yard friendly spell (UnitInRange is 100% safe & unprotected in combat)
+    if UnitInRange then
+        local inRange, checked = UnitInRange(unit)
+        if checked then return inRange end
+    end
+
+    return UnitIsVisible(unit) == true
 end
 
 -- Detect Role from Unit or PowerType (Rage = TANK, Energy = DAMAGER, Mana = HEALER/DAMAGER)

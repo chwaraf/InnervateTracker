@@ -206,7 +206,54 @@ end
 
 ---
 
-## 🚫 DANGER ZONE #7: Texture Path Typos & API Backwards Compatibility
+## 🚫 DANGER ZONE #7: Protected C Functions in Range Checking (`CheckInteractDistance`)
+
+### The Problem
+Calling `CheckInteractDistance(unit, index)` inside an `OnUpdate` loop or event handler during combat throws a protected C function action block:
+
+```
+5x [ADDON_ACTION_BLOCKED] AddOn 'InnervateTracker' tried to call the protected function 'UNKNOWN()'.
+[InnervateTracker/InnervateTracker.lua]:189: in function <InnervateTracker/InnervateTracker.lua:178>
+```
+
+### Why It Breaks
+In World of Warcraft's C++ engine, `CheckInteractDistance(unit, distIndex)` is used for inspecting, trading, dueling, and following units. Because these interact indices interface directly with secure C++ game subsystems (like the Inspect or Trade windows), **`CheckInteractDistance` is classified as a protected C function during combat**. Calling it on raid units during combat triggers an `ADDON_ACTION_BLOCKED` exception.
+
+### The Proper Solution
+**NEVER use `CheckInteractDistance` for AddOn range checking.** Use native, unprotected range APIs:
+
+1. **`IsSpellInRange(spellName, unit)`**:
+   The gold standard for exact range checks (e.g. 30yd spells). It is 100% unprotected and safe in combat.
+2. **`UnitInRange(unit)`**:
+   Blizzard's official C++ API for party/raid unit range checks (~38–40yd). Unprotected and 100% safe in combat.
+3. **`UnitIsVisible(unit)`**:
+   Checks whether a unit is rendered in the local world grid. Unprotected and safe in combat.
+
+```lua
+-- ✅ SAFE & UNPROTECTED RANGE CHECK:
+local function IsUnitInRange(unit)
+    if not unit or UnitIsUnit(unit, "player") then return true end
+    
+    -- 1. Class 30yd spell range check
+    if spell30 and IsSpellInRange then
+        local inRange = IsSpellInRange(spell30, unit)
+        if inRange == 1 then return true end
+        if inRange == 0 then return false end
+    end
+    
+    -- 2. Party/Raid member range fallback
+    if UnitInRange then
+        local inRange, checked = UnitInRange(unit)
+        if checked then return inRange end
+    end
+
+    return UnitIsVisible(unit) == true
+end
+```
+
+---
+
+## 🚫 DANGER ZONE #8: Texture Path Typos & API Backwards Compatibility
 
 ### The Problem
 * **Texture Path Errors**: A single missing letter in a Blizzard texture string (e.g., `UI-LFG-ICON-PORTRAITOLES` missing the 'R' in `PORTRAIT`) causes textures to render as missing green boxes without generating Lua runtime errors.
@@ -242,6 +289,7 @@ end
 | **TOC File** | Listing `Bindings.xml` in `.toc` | Omit `Bindings.xml` from `.toc` |
 | **Binding Headers** | Repeating `header="..."` per binding | Set `header="..."` on 1st entry only |
 | **Combat Whispers** | Using `SecureActionButtonTemplate` on UI rows | Standard `Button` + direct `SendChatMessage` |
+| **Range Check** | `CheckInteractDistance(unit, 4)` | `IsSpellInRange` / `UnitInRange` |
 | **Text Layout** | Default `SetWordWrap(true)` | `SetWordWrap(false)` + strict anchors |
 | **Spam Guard** | Instant execution on click/key | Time-based debouncing guard (`0.5s`) |
 | **Spell API** | Calling modern API directly | Fallback check (`C_Spell` vs `GetSpellInfo`) |
