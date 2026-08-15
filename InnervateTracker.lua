@@ -256,19 +256,8 @@ function InnervateTracker_WhisperSlot(slotIndex)
 
     lastWhisperTimes[slotIndex] = now
 
-    -- In combat, check if SendChatMessage can be sent safely or open chat editbox
-    if InCombatLockdown and InCombatLockdown() then
-        if ChatFrame_OpenChat then
-            ChatFrame_OpenChat("/w " .. druidName .. " Innervate please!")
-            print("|cff30ff30[InnervateTracker]|r Opened whisper editbox for " .. druidName)
-        else
-            SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
-            print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
-        end
-    else
-        SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
-        print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
-    end
+    SendChatMessage("Innervate please!", "WHISPER", nil, druidName)
+    print("|cff30ff30[InnervateTracker]|r Whispered " .. druidName .. " (#" .. slotIndex .. "): Innervate please!")
 end
 
 function InnervateTracker_WhisperSelected1() InnervateTracker_WhisperSlot(1) end
@@ -415,17 +404,8 @@ local function CreateVisualRow(index)
                     return
                 end
 
-                if InCombatLockdown and InCombatLockdown() then
-                    if ChatFrame_OpenChat then
-                        ChatFrame_OpenChat("/w " .. shortDruid .. " Innervate please!")
-                    else
-                        SendChatMessage("Innervate please!", "WHISPER", nil, shortDruid)
-                        print("|cff30ff30[InnervateTracker]|r Whispered " .. shortDruid .. ": Innervate please!")
-                    end
-                else
-                    SendChatMessage("Innervate please!", "WHISPER", nil, shortDruid)
-                    print("|cff30ff30[InnervateTracker]|r Whispered " .. shortDruid .. ": Innervate please!")
-                end
+                SendChatMessage("Innervate please!", "WHISPER", nil, shortDruid)
+                print("|cff30ff30[InnervateTracker]|r Whispered " .. shortDruid .. ": Innervate please!")
             end
         end
     end)

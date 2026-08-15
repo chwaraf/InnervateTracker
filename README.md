@@ -36,7 +36,7 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
 * **Safe Native Input & Zero Taint**:
   * **No Keyboard Hijacking**: Uses official `Bindings.xml` registered under `Options > Keybindings > AddOns`. Never captures WASD or chat.
   * **No `SaveBindings` Corruption**: Does not touch player binding files.
-  * **Combat Taint Protection**: Right-click whispers use `SecureActionButtonTemplate` macros to execute natively in combat without triggering `ADDON_ACTION_BLOCKED`.
+  * **Zero Combat Taint**: Uses standard unprotected buttons and direct `SendChatMessage` whispers, allowing instant 100% taint-free whispering and dynamic frame repositioning during combat.
 
 ---
 

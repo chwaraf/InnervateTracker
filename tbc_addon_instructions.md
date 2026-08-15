@@ -241,7 +241,7 @@ end
 | **Saving Keys** | Calling `SaveBindings()` in Lua | Let WoW client handle key saving |
 | **TOC File** | Listing `Bindings.xml` in `.toc` | Omit `Bindings.xml` from `.toc` |
 | **Binding Headers** | Repeating `header="..."` per binding | Set `header="..."` on 1st entry only |
-| **Combat Actions** | Insecure frame `SendChatMessage` | `SecureActionButtonTemplate` + macrotext |
+| **Combat Whispers** | Using `SecureActionButtonTemplate` on UI rows | Standard `Button` + direct `SendChatMessage` |
 | **Text Layout** | Default `SetWordWrap(true)` | `SetWordWrap(false)` + strict anchors |
 | **Spam Guard** | Instant execution on click/key | Time-based debouncing guard (`0.5s`) |
 | **Spell API** | Calling modern API directly | Fallback check (`C_Spell` vs `GetSpellInfo`) |
