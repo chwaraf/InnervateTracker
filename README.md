@@ -2,7 +2,7 @@
 
 **InnervateTracker** is a clean, lightweight, highly optimized World of Warcraft AddOn for tracking **Innervate (Stymulacja)** cooldowns, active buff durations, and recipient history in **TBC Anniversary** and **Classic Era** (Interface `20504`).
 
-Designed for competitive raid environments, **InnervateTracker** features a squeezed 170px UI footprint, native C++ non-hijacking keybindings (`F9`, `F10`, `F11`), 3-slot multi-highlighting with automatic slot re-allocation, 30-yard range fading, and robust combat-taint protections.
+Designed for competitive raid environments, **InnervateTracker** features a squeezed 170px UI footprint, native C++ non-hijacking keybindings (fully customizable per slot), 3-slot multi-highlighting with automatic slot re-allocation, 30-yard range fading, and robust combat-taint protections.
 
 ---
 
@@ -21,10 +21,10 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
   * **360s+ (Ready)**: Displays green `Ready` text.
 * **Persistent Data & Marked Druids (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, active cooldown timers, and marked Druid highlights **persist seamlessly across `/reload` and logouts**.
 * **3-Slot Multi-Highlight & Keybindings**:
-  * **Slot 1 (Default: `F9`)**: Gold / Yellow Highlight (`#ffd100`, `0.35 Alpha`).
-  * **Slot 2 (Default: `F10`)**: Cyan / Blue Highlight (`#1eb3ff`, `0.35 Alpha`).
-  * **Slot 3 (Default: `F11`)**: Bright Green Highlight (`#30ff30`, `0.35 Alpha`).
-  * **Smart Re-allocation**: Left-clicking to unmark a Druid automatically shifts remaining slots up, ensuring Slot 1 is always Gold (`F9`), Slot 2 is Cyan (`F10`), and Slot 3 is Green (`F11`).
+  * **Slot 1**: Gold / Yellow Highlight (`#ffd100`, `0.35 Alpha`).
+  * **Slot 2**: Cyan / Blue Highlight (`#1eb3ff`, `0.35 Alpha`).
+  * **Slot 3**: Bright Green Highlight (`#30ff30`, `0.35 Alpha`).
+  * **Smart Re-allocation**: Left-clicking to unmark a Druid automatically shifts remaining slots up, ensuring Slot 1 is always Gold, Slot 2 is Cyan, and Slot 3 is Green.
   * **Persistent Highlights**: Highlights stay locked to Druids even if they die, go offline, or leave the group.
 * **Absent, Offline & Dead Status Indicators**:
   * **`(Absent)`**: Displayed in **Muted Purple (`#a673a6`)** when a Druid leaves the party/raid group. Whispers are automatically blocked for absent Druids.
@@ -45,7 +45,7 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
 1. Download or clone this repository into a folder named **`InnervateTracker`**.
 2. Move the `InnervateTracker` folder into your World of Warcraft AddOns directory:
    ```
-   World of Warcraft\_classic_\Interface\AddOns\InnervateTracker\
+   World of Warcraft\_anniversary_\Interface\AddOns\InnervateTracker\
    ```
 3. Ensure the folder structure contains:
    * `InnervateTracker.toc`
@@ -59,10 +59,12 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
 
 1. Open `Main Menu` ➔ `Options` ➔ `Keybindings` ➔ `AddOns`.
 2. Scroll to **Innervate Tracker**.
-3. Customize keybindings for:
-   * **Whisper Highlighted Druid #1** (Default: **`F9`**)
-   * **Whisper Highlighted Druid #2** (Default: **`F10`**)
-   * **Whisper Highlighted Druid #3** (Default: **`F11`**)
+3. Assign keybindings for:
+   * **Whisper Highlighted Druid #1** (suggested: **`F9`**)
+   * **Whisper Highlighted Druid #2** (suggested: **`F10`**)
+   * **Whisper Highlighted Druid #3** (suggested: **`F11`**)
+
+> **Note:** No keys are assigned by default — the addon never modifies your binding files automatically. You must bind keys manually through the Keybindings menu.
 
 ---
 
@@ -71,9 +73,9 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
 | Command | Description |
 | :--- | :--- |
 | `/it reset` | Resets all cast statistics, recipient history, and session time. |
-| `/it bind` | Assigns default keys (`F9`, `F10`, `F11`) for the current session. |
 | `/it lock` | Toggles frame dragging lock/unlock. |
 | `/it sound` | Toggles sound alert when Innervate becomes Ready. |
+| `/it` | Shows usage help. |
 
 ---
 
