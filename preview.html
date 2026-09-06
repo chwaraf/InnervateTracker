@@ -99,6 +99,8 @@
     text-shadow: 1px 1px 1px #000, -1px -1px 1px #000;
     flex-grow: 1;
     margin-left: 6px;
+    white-space: nowrap;
+    overflow: hidden;
   }
 
   /* Rows Container */
@@ -526,12 +528,15 @@
   }
 
   function getSessionTimeStr(displayDb, isArchive) {
-    const endTime = isArchive ? (displayDb.endTime || Math.floor(Date.now() / 1000)) : Math.floor(Date.now() / 1000);
-    const elapsed = Math.max(0, endTime - displayDb.startTime);
+    if (isArchive) {
+      return new Date((displayDb.savedAt || displayDb.endTime) * 1000)
+        .toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - displayDb.startTime);
     const mins = Math.floor(elapsed / 60);
     const hrs = Math.floor(mins / 60);
     const duration = hrs > 0 ? `${hrs}h${mins % 60}m` : `${mins}m`;
-    return isArchive ? `T${archiveViewIndex}: ${duration}` : `S: ${duration}`;
+    return `S: ${duration}`;
   }
 
   function getSlotIndex(druid) {
@@ -543,6 +548,10 @@
     const isArchiveView = archiveViewIndex > 0;
     const displayDb = getDisplayDb();
     document.getElementById('sessionTitle').innerText = getSessionTimeStr(displayDb, isArchiveView);
+    document.getElementById('archiveBtn').innerText = isArchiveView ? 'H' : 'T';
+    document.getElementById('archiveBtn').title = isArchiveView
+      ? 'History view: left-click to rotate; timers are frozen at session end'
+      : 'Cycle archived sessions';
     document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
 
     trackerFrame.className = db.growUp ? 'grow-up' : '';
@@ -560,13 +569,15 @@
 
     const sortedDruids = Array.from(druidSet).sort();
     const now = Math.floor(Date.now() / 1000);
+    // Historical cooldowns are evaluated at the archived session end, not today.
+    const displayNow = isArchiveView ? (displayDb.endTime || displayDb.savedAt || now) : now;
 
     container.innerHTML = '';
 
     sortedDruids.forEach(druid => {
       const casts = (displayDb.casts && displayDb.casts[druid]) || 0;
       const cdData = displayDb.activeCDs && displayDb.activeCDs[druid];
-      const elapsed = cdData ? (now - cdData.castTime) : 9999;
+      const elapsed = cdData ? (displayNow - cdData.castTime) : 9999;
       const remBuff = INNERVATE_BUFF_DUR - elapsed;
       const remCD = INNERVATE_CD - elapsed;
 
@@ -638,7 +649,7 @@
       // Mouse click handlers
       row.addEventListener('mouseup', (e) => {
         if (isArchiveView) {
-          log('Archived sessions are read-only. Click T to return to the current session.');
+          log('Archived sessions are read-only. Click H to return to the current session.');
           return;
         }
         if (e.button === 0) {
@@ -771,7 +782,7 @@
     const colors = ['#ffd100', '#1eb3ff', '#30ff30'];
 
     if (isArchiveView) {
-      subEl.innerText = `Archived session #${archiveViewIndex} (read-only) — click T to return`;
+      subEl.innerText = `Archived session #${archiveViewIndex} (read-only) — click H to return`;
       subEl.style.color = '#ffd100';
     } else if (slotIdx) {
       subEl.innerText = `★ Highlighted Slot #${slotIdx} (Press ${bindKeys[slotIdx - 1]} or Right-click)`;
@@ -904,7 +915,7 @@
       log('Showing current session.');
     } else {
       const stamp = new Date(db.archives[archiveViewIndex - 1].savedAt * 1000).toLocaleString();
-      log(`Showing archived session #${archiveViewIndex}/${db.archives.length} (${stamp}).`);
+      log(`Showing archived session #${archiveViewIndex}/${db.archives.length} (${stamp}); timers frozen at session end.`);
     }
     renderTracker();
   }

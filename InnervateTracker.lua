@@ -46,6 +46,13 @@ local SLOT_COLORS = {
 -- This is intentionally session-local so the addon always opens on live data.
 local archiveViewIndex = 0
 
+local function FormatArchiveDate(snapshot)
+    if snapshot and snapshot.savedAt then
+        return date("%d %b %Y", snapshot.savedAt)
+    end
+    return "History"
+end
+
 -- Create main frame
 local frameTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
 local f = CreateFrame("Frame", "InnervateTrackerFrame", UIParent, frameTemplate)
@@ -96,8 +103,10 @@ growBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 title:SetTextColor(1, 0.82, 0)
+title:SetWordWrap(false)
 
--- Archived-session tab button "T" (Header), immediately to the left of R.
+-- Session-history tab button "T" (Header), immediately to the left of R.
+-- It changes to "H" while an archived session is being viewed.
 -- Left-click cycles through saved sessions; archived views are read-only.
 local archiveBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 archiveBtn:SetSize(16, 14)
@@ -108,7 +117,9 @@ archiveBtn:SetScript("OnEnter", function(self)
     local archiveCount = InnervateTrackerDB and InnervateTrackerDB.archives and #InnervateTrackerDB.archives or 0
     local viewIndex = archiveViewIndex or 0
     if viewIndex > 0 and archiveCount > 0 then
-        GameTooltip:SetText(string.format("Archived session %d/%d", viewIndex, archiveCount), 1, 0.82, 0)
+        local snapshot = InnervateTrackerDB.archives[viewIndex]
+        GameTooltip:SetText(string.format("History %d/%d: %s", viewIndex, archiveCount, FormatArchiveDate(snapshot)), 1, 0.82, 0)
+        GameTooltip:AddLine("Timers are frozen at the archived session end.", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Left-click to rotate history; click until Current returns.", 0.8, 0.8, 0.8)
     elseif archiveCount > 0 then
         GameTooltip:SetText(string.format("Session history (%d saved)", archiveCount), 1, 0.82, 0)
@@ -166,9 +177,11 @@ local function FormatDruidDisplayName(fullName)
     end
 end
 
--- Relative age for tooltip cast log ("12s ago", "3m ago", "1h ago")
-local function FormatRelativeAge(castTime)
-    local age = math.max(0, time() - castTime)
+-- Relative age for tooltip cast log ("12s ago", "3m ago", "1h ago").
+-- History views pass their archived endTime so old timers stay meaningful
+-- relative to the date/session being viewed instead of continuing to tick today.
+local function FormatRelativeAge(castTime, referenceTime)
+    local age = math.max(0, (referenceTime or time()) - castTime)
     if age < 60 then
         return string.format("%ds ago", age)
     elseif age < 3600 then
@@ -458,7 +471,7 @@ local function CycleArchiveView()
     else
         local snapshot = archives[archiveViewIndex]
         local stamp = snapshot and snapshot.savedAt and date("%m/%d %H:%M", snapshot.savedAt) or "unknown time"
-        print(string.format("|cffffd100Innervate Tracker:|r Showing archived session #%d/%d (%s).", archiveViewIndex, count, stamp))
+        print(string.format("|cffffd100Innervate Tracker:|r Showing history #%d/%d (%s); timers frozen at session end.", archiveViewIndex, count, stamp))
     end
 end
 
@@ -572,7 +585,7 @@ local function CreateVisualRow(index)
     -- OnClick handles LeftButton for marking/unmarking and RightButton for whispering
     row:SetScript("OnClick", function(self, button)
         if archiveViewIndex > 0 then
-            print("|cffffea00[InnervateTracker]|r Archived sessions are read-only. Click T to return to the current session.")
+            print("|cffffea00[InnervateTracker]|r Archived sessions are read-only. Click H to return to the current session.")
             return
         end
         if not self.druidName then return end
@@ -610,6 +623,8 @@ local function CreateVisualRow(index)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
         local db = GetDisplayDB()
+        local isArchiveView = archiveViewIndex > 0
+        local referenceTime = isArchiveView and (db.endTime or db.savedAt or time()) or time()
 
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
@@ -621,6 +636,9 @@ local function CreateVisualRow(index)
             GameTooltip:AddLine(string.format("Total Innervates: %d", totalCasts), 0.9, 0.9, 0.9)
         else
             GameTooltip:AddLine("No Innervates cast this session.", 0.6, 0.6, 0.6)
+        end
+        if isArchiveView then
+            GameTooltip:AddLine(string.format("Session date: %s", FormatArchiveDate(db)), 0.8, 0.8, 0.8)
         end
 
         -- ── Status line (slot / whisper hint) ──────────────────────
@@ -647,7 +665,7 @@ local function CreateVisualRow(index)
         -- ── Current cooldown status ─────────────────────────────────
         local cdData = db and db.activeCDs and db.activeCDs[shortDruid]
         if cdData then
-            local elapsed = time() - cdData.castTime
+            local elapsed = referenceTime - cdData.castTime
             local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
             local remainingCD = INNERVATE_CD - elapsed
             if remainingBuff > 0 then
@@ -670,10 +688,10 @@ local function CreateVisualRow(index)
             GameTooltip:AddLine("Recent Casts", 1, 0.82, 0)
             for i, entry in ipairs(castLog) do
                 -- Color by age: fresh (<60s) green, older gray
-                local isFresh = (time() - entry.t) < 60
+                local isFresh = (referenceTime - entry.t) < 60
                 GameTooltip:AddDoubleLine(
                     string.format("  > %s", GetShortName(entry.target)),
-                    FormatRelativeAge(entry.t),
+                    FormatRelativeAge(entry.t, referenceTime),
                     0.8, 0.8, 0.8,
                     isFresh and 0.3 or 0.55, isFresh and 1 or 0.55, isFresh and 0.3 or 0.55)
             end
@@ -825,12 +843,13 @@ UpdateDisplay = function()
     local isArchiveView = archiveViewIndex > 0
     local displayDB = GetDisplayDB()
     UpdateHeaderLayout()
+    archiveBtn:SetText(isArchiveView and "H" or "T")
 
-    -- Label the live session with S and historical snapshots with T plus their
-    -- rotation number, so it is obvious which data is currently on screen.
+    -- The live view keeps its session timer.  A history view shows the day the
+    -- session ended; its detailed tooltip retains the exact duration.
     local sessionText
     if isArchiveView then
-        sessionText = string.format("T%d: %s", archiveViewIndex, FormatSessionTime(displayDB, true))
+        sessionText = FormatArchiveDate(displayDB)
     else
         sessionText = "S: " .. FormatSessionTime(displayDB, false)
     end
@@ -839,7 +858,7 @@ UpdateDisplay = function()
     end
 
     local index = 1
-    local currentTime = time()
+    local currentTime = isArchiveView and (displayDB.endTime or displayDB.savedAt or time()) or time()
     local isUp = InnervateTrackerDB.growUp
 
     -- Reuse the sorted list across ticks; only rebuild when roster membership or
