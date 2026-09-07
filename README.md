@@ -20,7 +20,7 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
   * **20 – 360s (Cooldown)**: Displays a red/orange bar counting down the Druid's remaining cooldown (e.g. `5m30s`).
   * **360s+ (Ready)**: Displays green `Ready` text.
 * **Persistent Data & Marked Druids (`SavedVariables`)**: Session time (`S: 12m`), cast totals `()`, recipient history, active cooldown timers, and marked Druid highlights **persist seamlessly across `/reload` and logouts**.
-* **Session Archive & History Tab**: Right-click the header **`R`** button to confirm saving the current session before resetting it. The snapshot is retained in a bounded history of up to 20 sessions. Left-click the new **`T`** button immediately to the left of `R` to rotate through archived sessions and back to the live session; it changes to **`H`** while viewing history. Archived views show the session day at the top, freeze cooldowns and relative cast ages at that session's end, and are read-only.
+* **Session Archive & History Tab**: Right-click the header **`R`** button to confirm saving the current session before resetting it. The snapshot is retained in a bounded history of up to 20 sessions. The button immediately to the left of `R` is **`N`** for the live/now view and changes to **`H`** while viewing history. Left-click it to rotate through archived sessions and back to live data. Archived views show the timestamp as `08.08.26 11:11`, freeze cooldowns and relative cast ages at that session's end, and are read-only. Its mouseover tooltip explains the current mode and controls without printing chat messages on each rotation.
 * **3-Slot Multi-Highlight & Keybindings**:
   * **Slot 1**: Gold / Yellow Highlight (`#ffd100`, `0.35 Alpha`).
   * **Slot 2**: Cyan / Blue Highlight (`#1eb3ff`, `0.35 Alpha`).
@@ -71,7 +71,7 @@ Designed for competitive raid environments, **InnervateTracker** features a sque
 
 * **`R` left-click** resets the live session immediately.
 * **`R` right-click** opens a confirmation prompt, archives the live session, and then starts a fresh session.
-* **`T` left-click** rotates through the newest archived session, older sessions, and finally back to the current session. It changes to **`H`** in history mode; the header shows the archived day and cooldown/relative timers are evaluated at that session's end rather than the present. Archived sessions cannot be edited or used for whispers.
+* **`N` / `H` left-click** rotates through the newest archived session, older sessions, and finally back to the current session. The detailed mouseover explains whether the button is showing live data or a dated history snapshot. History timestamps use `DD.MM.YY HH:MM`; cooldown/relative timers are evaluated at that session's end rather than the present. Archived sessions cannot be edited or used for whispers, and cycling does not print chat messages.
 
 ---
 

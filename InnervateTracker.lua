@@ -48,7 +48,7 @@ local archiveViewIndex = 0
 
 local function FormatArchiveDate(snapshot)
     if snapshot and snapshot.savedAt then
-        return date("%d %b %Y", snapshot.savedAt)
+        return date("%d.%m.%y %H:%M", snapshot.savedAt)
     end
     return "History"
 end
@@ -105,12 +105,12 @@ title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 title:SetTextColor(1, 0.82, 0)
 title:SetWordWrap(false)
 
--- Session-history tab button "T" (Header), immediately to the left of R.
--- It changes to "H" while an archived session is being viewed.
+-- Session-history button "N"/"H" (Header), immediately to the left of R.
+-- N = live/now; H = an archived history snapshot.
 -- Left-click cycles through saved sessions; archived views are read-only.
 local archiveBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 archiveBtn:SetSize(16, 14)
-archiveBtn:SetText("T")
+archiveBtn:SetText("N")
 archiveBtn:RegisterForClicks("LeftButtonUp")
 archiveBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -118,15 +118,23 @@ archiveBtn:SetScript("OnEnter", function(self)
     local viewIndex = archiveViewIndex or 0
     if viewIndex > 0 and archiveCount > 0 then
         local snapshot = InnervateTrackerDB.archives[viewIndex]
-        GameTooltip:SetText(string.format("History %d/%d: %s", viewIndex, archiveCount, FormatArchiveDate(snapshot)), 1, 0.82, 0)
-        GameTooltip:AddLine("Timers are frozen at the archived session end.", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("Left-click to rotate history; click until Current returns.", 0.8, 0.8, 0.8)
+        GameTooltip:SetText(string.format("H — History %d/%d", viewIndex, archiveCount), 1, 0.82, 0)
+        GameTooltip:AddLine("Archived: " .. FormatArchiveDate(snapshot), 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: rotate to the next saved session.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("After the last one, the next click returns to N (live data).", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Cooldowns and cast ages are frozen at that session's end.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("History rows are read-only; whispers and highlighting are disabled.", 0.8, 0.8, 0.8)
     elseif archiveCount > 0 then
-        GameTooltip:SetText(string.format("Session history (%d saved)", archiveCount), 1, 0.82, 0)
-        GameTooltip:AddLine("Left-click to view the next archived session.", 0.8, 0.8, 0.8)
+        GameTooltip:SetText("N — Now / current session", 1, 0.82, 0)
+        GameTooltip:AddLine("Live data currently being tracked.", 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: open the newest archived session in H mode.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(string.format("%d saved session%s available.", archiveCount, archiveCount == 1 and "" or "s"), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click R: archive the current session after confirmation.", 0.8, 0.8, 0.8)
     else
-        GameTooltip:SetText("Session history", 1, 0.82, 0)
-        GameTooltip:AddLine("Right-click R to archive a session.", 0.8, 0.8, 0.8)
+        GameTooltip:SetText("N — Now / current session", 1, 0.82, 0)
+        GameTooltip:AddLine("Live data currently being tracked.", 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: open history after a session has been archived.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click R: archive the current session after confirmation.", 0.8, 0.8, 0.8)
     end
     GameTooltip:Show()
 end)
@@ -455,7 +463,6 @@ local function CycleArchiveView()
     local archives = InnervateTrackerDB and InnervateTrackerDB.archives
     local count = archives and #archives or 0
     if count == 0 then
-        print("|cffffea00Innervate Tracker:|r No archived sessions yet. Right-click R to save one.")
         return
     end
 
@@ -465,14 +472,6 @@ local function CycleArchiveView()
     end
     cachedSortedDruids = nil
     if UpdateDisplay then UpdateDisplay() end
-
-    if archiveViewIndex == 0 then
-        print("|cff30ff30Innervate Tracker:|r Showing current session.")
-    else
-        local snapshot = archives[archiveViewIndex]
-        local stamp = snapshot and snapshot.savedAt and date("%m/%d %H:%M", snapshot.savedAt) or "unknown time"
-        print(string.format("|cffffd100Innervate Tracker:|r Showing history #%d/%d (%s); timers frozen at session end.", archiveViewIndex, count, stamp))
-    end
 end
 
 -- Register the confirmation only after ArchiveAndResetData exists.  The dialog
@@ -585,7 +584,7 @@ local function CreateVisualRow(index)
     -- OnClick handles LeftButton for marking/unmarking and RightButton for whispering
     row:SetScript("OnClick", function(self, button)
         if archiveViewIndex > 0 then
-            print("|cffffea00[InnervateTracker]|r Archived sessions are read-only. Click H to return to the current session.")
+            print("|cffffea00[InnervateTracker]|r History is read-only. Click H to rotate back to live data.")
             return
         end
         if not self.druidName then return end
@@ -843,7 +842,7 @@ UpdateDisplay = function()
     local isArchiveView = archiveViewIndex > 0
     local displayDB = GetDisplayDB()
     UpdateHeaderLayout()
-    archiveBtn:SetText(isArchiveView and "H" or "T")
+    archiveBtn:SetText(isArchiveView and "H" or "N")
 
     -- The live view keeps its session timer.  A history view shows the day the
     -- session ended; its detailed tooltip retains the exact duration.
@@ -862,7 +861,7 @@ UpdateDisplay = function()
     local isUp = InnervateTrackerDB.growUp
 
     -- Reuse the sorted list across ticks; only rebuild when roster membership or
-    -- the selected T history tab changes.
+    -- the selected N/H history tab changes.
     if not cachedSortedDruids then
         cachedSortedDruids = GetDisplayDruidNames(displayDB, isArchiveView)
     end

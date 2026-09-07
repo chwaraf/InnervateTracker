@@ -402,7 +402,7 @@
       <div id="headerBar" class="tracker-header">
         <button id="growBtn" class="btn-wow" title="Toggle growth direction">v</button>
         <div id="sessionTitle" class="session-title">S: 0m</div>
-        <button id="archiveBtn" class="btn-wow" title="Cycle archived sessions">T</button>
+        <button id="archiveBtn" class="btn-wow" title="N — current session; click to cycle history">N</button>
         <button id="resetBtn" class="btn-wow" title="Left-click reset; right-click archive with confirmation">R</button>
       </div>
       <div id="rowsContainer" class="rows-container">
@@ -436,7 +436,7 @@
       <button class="cmd-btn" onclick="pressKeybind(3)">⌨️ F11 (Slot 3 - Green)</button>
       <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth (^ / v)</button>
       <button class="cmd-btn" onclick="toggleGroupState()">🚪 Toggle Group State</button>
-      <button class="cmd-btn" onclick="cycleArchiveView()">🗂️ Cycle History [T]</button>
+      <button class="cmd-btn" onclick="cycleArchiveView()">🗂️ Cycle History [N/H]</button>
       <button class="cmd-btn" onclick="resetStats()">🧹 Left-click R: Reset Session</button>
       <button class="cmd-btn" onclick="archiveCurrentSession()">💾 Right-click R: Archive (confirm)</button>
     </div>
@@ -527,10 +527,15 @@
     return db;
   }
 
+  function formatArchiveDate(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const pad = value => String(value).padStart(2, '0');
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${String(date.getFullYear()).slice(-2)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   function getSessionTimeStr(displayDb, isArchive) {
     if (isArchive) {
-      return new Date((displayDb.savedAt || displayDb.endTime) * 1000)
-        .toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+      return formatArchiveDate(displayDb.savedAt || displayDb.endTime);
     }
     const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - displayDb.startTime);
     const mins = Math.floor(elapsed / 60);
@@ -548,10 +553,10 @@
     const isArchiveView = archiveViewIndex > 0;
     const displayDb = getDisplayDb();
     document.getElementById('sessionTitle').innerText = getSessionTimeStr(displayDb, isArchiveView);
-    document.getElementById('archiveBtn').innerText = isArchiveView ? 'H' : 'T';
+    document.getElementById('archiveBtn').innerText = isArchiveView ? 'H' : 'N';
     document.getElementById('archiveBtn').title = isArchiveView
-      ? 'History view: left-click to rotate; timers are frozen at session end'
-      : 'Cycle archived sessions';
+      ? `H — history #${archiveViewIndex}: ${formatArchiveDate(displayDb.savedAt || displayDb.endTime)}. Click to rotate; timers are frozen at session end.`
+      : 'N — current live session. Click to open the newest archived history snapshot.';
     document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
 
     trackerFrame.className = db.growUp ? 'grow-up' : '';
@@ -906,17 +911,8 @@
   }
 
   function cycleArchiveView() {
-    if (!db.archives.length) {
-      log('No archived sessions yet. Right-click R to save one.');
-      return;
-    }
+    if (!db.archives.length) return;
     archiveViewIndex = archiveViewIndex >= db.archives.length ? 0 : archiveViewIndex + 1;
-    if (archiveViewIndex === 0) {
-      log('Showing current session.');
-    } else {
-      const stamp = new Date(db.archives[archiveViewIndex - 1].savedAt * 1000).toLocaleString();
-      log(`Showing archived session #${archiveViewIndex}/${db.archives.length} (${stamp}); timers frozen at session end.`);
-    }
     renderTracker();
   }
 
