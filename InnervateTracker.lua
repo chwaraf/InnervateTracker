@@ -20,6 +20,7 @@ end
 local INNERVATE_NAME = GetSpellName(29166) or "Innervate"
 local INNERVATE_CD = 360            -- Baseline CD: 6 minutes
 local INNERVATE_BUFF_DURATION = 20   -- Buff duration: 20 seconds
+local MAX_ARCHIVED_SESSIONS = 20    -- Keep the SavedVariables history bounded
 
 -- Class color hex lookup for tooltips
 local CLASS_COLORS = {
@@ -40,6 +41,17 @@ local SLOT_COLORS = {
     [2] = { r = 0.1, g = 0.80, b = 1.0,  a = 0.35, hex = "1eb3ff" }, -- Slot 2: Cyan / Blue
     [3] = { r = 0.2, g = 1.00, b = 0.3,  a = 0.35, hex = "30ff30" }, -- Slot 3: Bright Green
 }
+
+-- 0 is the live session; 1..n are archived sessions (newest first).
+-- This is intentionally session-local so the addon always opens on live data.
+local archiveViewIndex = 0
+
+local function FormatArchiveDate(snapshot)
+    if snapshot and snapshot.savedAt then
+        return date("%d.%m.%y %H:%M", snapshot.savedAt)
+    end
+    return "History"
+end
 
 -- Create main frame
 local frameTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -91,14 +103,52 @@ growBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 title:SetTextColor(1, 0.82, 0)
+title:SetWordWrap(false)
 
--- Reset button "R" (Header)
+-- Session-history button "N"/"H" (Header), immediately to the left of R.
+-- N = live/now; H = an archived history snapshot.
+-- Left-click cycles through saved sessions; archived views are read-only.
+local archiveBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+archiveBtn:SetSize(16, 14)
+archiveBtn:SetText("N")
+archiveBtn:RegisterForClicks("LeftButtonUp")
+archiveBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local archiveCount = InnervateTrackerDB and InnervateTrackerDB.archives and #InnervateTrackerDB.archives or 0
+    local viewIndex = archiveViewIndex or 0
+    if viewIndex > 0 and archiveCount > 0 then
+        local snapshot = InnervateTrackerDB.archives[viewIndex]
+        GameTooltip:SetText(string.format("H — History %d/%d", viewIndex, archiveCount), 1, 0.82, 0)
+        GameTooltip:AddLine("Archived: " .. FormatArchiveDate(snapshot), 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: rotate to the next saved session.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("After the last one, the next click returns to N (live data).", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Cooldowns and cast ages are frozen at that session's end.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("History rows are read-only; whispers and highlighting are disabled.", 0.8, 0.8, 0.8)
+    elseif archiveCount > 0 then
+        GameTooltip:SetText("N — Now / current session", 1, 0.82, 0)
+        GameTooltip:AddLine("Live data currently being tracked.", 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: open the newest archived session in H mode.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(string.format("%d saved session%s available.", archiveCount, archiveCount == 1 and "" or "s"), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click R: archive the current session after confirmation.", 0.8, 0.8, 0.8)
+    else
+        GameTooltip:SetText("N — Now / current session", 1, 0.82, 0)
+        GameTooltip:AddLine("Live data currently being tracked.", 0.9, 0.9, 0.9)
+        GameTooltip:AddLine("Left-click: open history after a session has been archived.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click R: archive the current session after confirmation.", 0.8, 0.8, 0.8)
+    end
+    GameTooltip:Show()
+end)
+archiveBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Reset button "R" (Header). Right-click archives the session after confirmation.
 local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 resetBtn:SetSize(16, 14)
 resetBtn:SetText("R")
+resetBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 resetBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Reset counters and session time", 1, 1, 1)
+    GameTooltip:SetText("Left-click: reset counters", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: archive session and reset (confirmation)", 0.8, 0.8, 0.8)
     GameTooltip:Show()
 end)
 resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -135,9 +185,11 @@ local function FormatDruidDisplayName(fullName)
     end
 end
 
--- Relative age for tooltip cast log ("12s ago", "3m ago", "1h ago")
-local function FormatRelativeAge(castTime)
-    local age = math.max(0, time() - castTime)
+-- Relative age for tooltip cast log ("12s ago", "3m ago", "1h ago").
+-- History views pass their archived endTime so old timers stay meaningful
+-- relative to the date/session being viewed instead of continuing to tick today.
+local function FormatRelativeAge(castTime, referenceTime)
+    local age = math.max(0, (referenceTime or time()) - castTime)
     if age < 60 then
         return string.format("%ds ago", age)
     elseif age < 3600 then
@@ -290,12 +342,14 @@ function InnervateTracker_WhisperSelected1() InnervateTracker_WhisperSlot(1) end
 function InnervateTracker_WhisperSelected2() InnervateTracker_WhisperSlot(2) end
 function InnervateTracker_WhisperSelected3() InnervateTracker_WhisperSlot(3) end
 
-local function FormatSessionTime()
-    if not InnervateTrackerDB or not InnervateTrackerDB.startTime then return "S: 0m" end
-    local diff = math.max(0, time() - InnervateTrackerDB.startTime)
+local function FormatSessionTime(db, isArchive)
+    if not db or not db.startTime then return "0m" end
+    -- Archived sessions keep their endTime; the live session keeps counting.
+    local endTime = (isArchive and db.endTime) or time()
+    local diff = math.max(0, endTime - db.startTime)
     local hrs = math.floor(diff / 3600)
     local mins = math.floor((diff % 3600) / 60)
-    return hrs > 0 and string.format("S: %dh%dm", hrs, mins) or string.format("S: %dm", mins)
+    return hrs > 0 and string.format("%dh%dm", hrs, mins) or string.format("%dm", mins)
 end
 
 local function UpdateHeaderLayout()
@@ -312,20 +366,25 @@ local function UpdateHeaderLayout()
 
     growBtn:ClearAllPoints()
     title:ClearAllPoints()
+    archiveBtn:ClearAllPoints()
     resetBtn:ClearAllPoints()
 
     if isUp then
         growBtn:SetPoint("BOTTOMLEFT", 5, 4)
         title:SetPoint("BOTTOMLEFT", 24, 5)
+        title:SetPoint("RIGHT", archiveBtn, "LEFT", -3, 0)
+        archiveBtn:SetPoint("BOTTOMRIGHT", -23, 4)
         resetBtn:SetPoint("BOTTOMRIGHT", -5, 4)
     else
         growBtn:SetPoint("TOPLEFT", 5, -4)
         title:SetPoint("TOPLEFT", 24, -5)
+        title:SetPoint("RIGHT", archiveBtn, "LEFT", -3, 0)
+        archiveBtn:SetPoint("TOPRIGHT", -23, -4)
         resetBtn:SetPoint("TOPRIGHT", -5, -4)
     end
 end
 
-local function ResetData()
+local function ResetData(silent)
     if not InnervateTrackerDB then return end
     InnervateTrackerDB.casts = {}
     InnervateTrackerDB.history = {}
@@ -334,8 +393,105 @@ local function ResetData()
     InnervateTrackerDB.startTime = time()
     table.wipe(selectedDruids)
     SyncSelectedDruids()
-    print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
+    archiveViewIndex = 0
+    cachedSortedDruids = nil
+    if not silent then
+        print("|cff30ff30Innervate Tracker: Stats and session time have been reset!|r")
+    end
 end
+
+-- SavedVariables are copied before the live session is reset.  Do not retain
+-- references to the live tables: future casts must not change old sessions.
+local function CopyArchiveValue(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, child in pairs(value) do
+        copy[key] = CopyArchiveValue(child)
+    end
+    return copy
+end
+
+local function HasSessionData()
+    if not InnervateTrackerDB then return false end
+    for _, values in ipairs({ InnervateTrackerDB.casts, InnervateTrackerDB.history,
+                              InnervateTrackerDB.castLog, InnervateTrackerDB.activeCDs }) do
+        if type(values) == "table" and next(values) then return true end
+    end
+    return false
+end
+
+local function ArchiveAndResetData()
+    if not InnervateTrackerDB then return end
+    if not HasSessionData() then
+        print("|cffffea00Innervate Tracker:|r Nothing to archive in the current session.")
+        return
+    end
+
+    local now = time()
+    local snapshot = {
+        version = 1,
+        savedAt = now,
+        startTime = InnervateTrackerDB.startTime or now,
+        endTime = now,
+        casts = CopyArchiveValue(InnervateTrackerDB.casts),
+        history = CopyArchiveValue(InnervateTrackerDB.history),
+        activeCDs = CopyArchiveValue(InnervateTrackerDB.activeCDs),
+        castLog = CopyArchiveValue(InnervateTrackerDB.castLog),
+        roles = CopyArchiveValue(InnervateTrackerDB.roles),
+    }
+
+    InnervateTrackerDB.archives = InnervateTrackerDB.archives or {}
+    table.insert(InnervateTrackerDB.archives, 1, snapshot)
+    while #InnervateTrackerDB.archives > MAX_ARCHIVED_SESSIONS do
+        table.remove(InnervateTrackerDB.archives)
+    end
+
+    ResetData(true)
+    if ScanRaidRoster then ScanRaidRoster() end
+    if UpdateDisplay then UpdateDisplay() end
+    print(string.format("|cff30ff30Innervate Tracker:|r Session archived as history #%d and reset.", 1))
+end
+
+local function GetDisplayDB()
+    if archiveViewIndex > 0 and InnervateTrackerDB and InnervateTrackerDB.archives then
+        return InnervateTrackerDB.archives[archiveViewIndex] or InnervateTrackerDB
+    end
+    return InnervateTrackerDB
+end
+
+local function CycleArchiveView()
+    local archives = InnervateTrackerDB and InnervateTrackerDB.archives
+    local count = archives and #archives or 0
+    if count == 0 then
+        return
+    end
+
+    archiveViewIndex = archiveViewIndex + 1
+    if archiveViewIndex > count then
+        archiveViewIndex = 0
+    end
+    cachedSortedDruids = nil
+    if UpdateDisplay then UpdateDisplay() end
+end
+
+-- Register the confirmation only after ArchiveAndResetData exists.  The dialog
+-- is intentionally used instead of an unconfirmed destructive right-click.
+if StaticPopupDialogs then
+    StaticPopupDialogs["INNERVATETRACKER_ARCHIVE_CONFIRM"] = {
+        text = "Archive this Innervate session and reset the live counters?",
+        button1 = YES,
+        button2 = NO,
+        OnAccept = function() ArchiveAndResetData() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+end
+
+archiveBtn:SetScript("OnClick", function()
+    CycleArchiveView()
+end)
 
 growBtn:SetScript("OnClick", function()
     if not InnervateTrackerDB then return end
@@ -359,7 +515,18 @@ growBtn:SetScript("OnClick", function()
     if UpdateDisplay then UpdateDisplay() end
 end)
 
-resetBtn:SetScript("OnClick", function()
+resetBtn:SetScript("OnClick", function(self, button)
+    if button == "RightButton" then
+        if StaticPopup_Show then
+            StaticPopup_Show("INNERVATETRACKER_ARCHIVE_CONFIRM")
+        else
+            -- Defensive fallback for test harnesses; the WoW client always has
+            -- StaticPopup_Show, so normal gameplay always asks for confirmation.
+            ArchiveAndResetData()
+        end
+        return
+    end
+
     ResetData()
     if ScanRaidRoster then ScanRaidRoster() end
     if UpdateDisplay then UpdateDisplay() end
@@ -416,6 +583,10 @@ local function CreateVisualRow(index)
 
     -- OnClick handles LeftButton for marking/unmarking and RightButton for whispering
     row:SetScript("OnClick", function(self, button)
+        if archiveViewIndex > 0 then
+            print("|cffffea00[InnervateTracker]|r History is read-only. Click H to rotate back to live data.")
+            return
+        end
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
 
@@ -450,7 +621,9 @@ local function CreateVisualRow(index)
     row:SetScript("OnEnter", function(self)
         if not self.druidName then return end
         local shortDruid = GetShortName(self.druidName)
-        local db = InnervateTrackerDB
+        local db = GetDisplayDB()
+        local isArchiveView = archiveViewIndex > 0
+        local referenceTime = isArchiveView and (db.endTime or db.savedAt or time()) or time()
 
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
@@ -463,10 +636,18 @@ local function CreateVisualRow(index)
         else
             GameTooltip:AddLine("No Innervates cast this session.", 0.6, 0.6, 0.6)
         end
+        if isArchiveView then
+            GameTooltip:AddLine(string.format("Session date: %s", FormatArchiveDate(db)), 0.8, 0.8, 0.8)
+        end
 
         -- ── Status line (slot / whisper hint) ──────────────────────
-        local slotIndex = GetDruidSlot(shortDruid)
-        if slotIndex then
+        local slotIndex
+        if archiveViewIndex == 0 then
+            slotIndex = GetDruidSlot(shortDruid)
+        end
+        if archiveViewIndex > 0 then
+            GameTooltip:AddLine("Archived session - read-only", 1, 0.82, 0)
+        elseif slotIndex then
             local key1, key2 = GetBindingKey and GetBindingKey("INNERVATETRACKER_WHISPER" .. slotIndex)
             local activeKey = key1 or key2
             local colorHex = SLOT_COLORS[slotIndex] and SLOT_COLORS[slotIndex].hex or "ffd100"
@@ -483,7 +664,7 @@ local function CreateVisualRow(index)
         -- ── Current cooldown status ─────────────────────────────────
         local cdData = db and db.activeCDs and db.activeCDs[shortDruid]
         if cdData then
-            local elapsed = time() - cdData.castTime
+            local elapsed = referenceTime - cdData.castTime
             local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
             local remainingCD = INNERVATE_CD - elapsed
             if remainingBuff > 0 then
@@ -506,10 +687,10 @@ local function CreateVisualRow(index)
             GameTooltip:AddLine("Recent Casts", 1, 0.82, 0)
             for i, entry in ipairs(castLog) do
                 -- Color by age: fresh (<60s) green, older gray
-                local isFresh = (time() - entry.t) < 60
+                local isFresh = (referenceTime - entry.t) < 60
                 GameTooltip:AddDoubleLine(
                     string.format("  > %s", GetShortName(entry.target)),
-                    FormatRelativeAge(entry.t),
+                    FormatRelativeAge(entry.t, referenceTime),
                     0.8, 0.8, 0.8,
                     isFresh and 0.3 or 0.55, isFresh and 1 or 0.55, isFresh and 0.3 or 0.55)
             end
@@ -633,27 +814,56 @@ ScanRaidRoster = function()
     end
 end
 
+local function GetDisplayDruidNames(displayDB, isArchiveView)
+    local names = {}
+    if not isArchiveView then
+        for name in pairs(druidList) do names[name] = true end
+    end
+
+    -- Historical views contain only the names represented by that snapshot;
+    -- live roster members are deliberately not mixed into an old session.
+    local tables = { displayDB and displayDB.casts, displayDB and displayDB.activeCDs,
+                     displayDB and displayDB.history, displayDB and displayDB.castLog }
+    for _, values in ipairs(tables) do
+        if values then
+            for name in pairs(values) do names[name] = true end
+        end
+    end
+
+    local sorted = {}
+    for name in pairs(names) do table.insert(sorted, name) end
+    table.sort(sorted)
+    return sorted
+end
+
 UpdateDisplay = function()
     if not isInitialized or not InnervateTrackerDB then return end
 
+    local isArchiveView = archiveViewIndex > 0
+    local displayDB = GetDisplayDB()
     UpdateHeaderLayout()
-    -- Session label only changes once per minute; skip redundant format+SetText
-    local sessionText = FormatSessionTime()
+    archiveBtn:SetText(isArchiveView and "H" or "N")
+
+    -- The live view keeps its session timer.  A history view shows the day the
+    -- session ended; its detailed tooltip retains the exact duration.
+    local sessionText
+    if isArchiveView then
+        sessionText = FormatArchiveDate(displayDB)
+    else
+        sessionText = "S: " .. FormatSessionTime(displayDB, false)
+    end
     if title:GetText() ~= sessionText then
         title:SetText(sessionText)
     end
 
     local index = 1
-    local currentTime = time()
+    local currentTime = isArchiveView and (displayDB.endTime or displayDB.savedAt or time()) or time()
     local isUp = InnervateTrackerDB.growUp
 
-    -- Reuse the sorted list across ticks; only rebuild when roster membership changed
+    -- Reuse the sorted list across ticks; only rebuild when roster membership or
+    -- the selected N/H history tab changes.
     if not cachedSortedDruids then
-        cachedSortedDruids = {}
-        for name in pairs(druidList) do
-            table.insert(cachedSortedDruids, name)
-        end
-        table.sort(cachedSortedDruids)
+        cachedSortedDruids = GetDisplayDruidNames(displayDB, isArchiveView)
     end
 
     for _, name in ipairs(cachedSortedDruids) do
@@ -682,12 +892,24 @@ UpdateDisplay = function()
             row.anchoredGrowUp = isUp
         end
 
-        local druidData = druidList[name]
-        local cdData = InnervateTrackerDB.activeCDs and InnervateTrackerDB.activeCDs[name]
+        local druidData
+        if isArchiveView then
+            druidData = {
+                role = (displayDB.roles and displayDB.roles[name]) or "HEALER",
+                inGroup = true,
+                unit = nil,
+                inRange = true,
+                isDead = false,
+                isOffline = false,
+            }
+        else
+            druidData = druidList[name]
+        end
+        local cdData = displayDB.activeCDs and displayDB.activeCDs[name]
         local elapsed = cdData and (currentTime - cdData.castTime) or 9999
         local remainingCD = INNERVATE_CD - elapsed
         local remainingBuff = INNERVATE_BUFF_DURATION - elapsed
-        local casts = InnervateTrackerDB.casts and InnervateTrackerDB.casts[name] or 0
+        local casts = displayDB.casts and displayDB.casts[name] or 0
 
         -- Role Icon: texture path bound once at row creation; only TexCoord varies per role
         local role = druidData and druidData.role or "HEALER"
@@ -706,7 +928,10 @@ UpdateDisplay = function()
 
         -- Slot lookup must happen BEFORE any use below (was previously declared
         -- after the highlight check, making that check read a nil global)
-        local slotIndex = GetDruidSlot(name)
+        local slotIndex
+        if not isArchiveView then
+            slotIndex = GetDruidSlot(name)
+        end
 
         -- Multi-Slot Highlight color check (Gold for Slot 1, Cyan for Slot 2, Green for Slot 3)
         if slotIndex and SLOT_COLORS[slotIndex] then
@@ -802,10 +1027,12 @@ UpdateDisplay = function()
             if cdData then
                 -- Only play the alert for a fresh in-session transition (castTime seen
                 -- this session); stale entries pruned at init never trigger sound
-                if InnervateTrackerDB.soundAlert and cdData.soundPlayed ~= true and cdData.castTime and (currentTime - cdData.castTime) < INNERVATE_CD then
+                if not isArchiveView and InnervateTrackerDB.soundAlert and cdData.soundPlayed ~= true and cdData.castTime and (currentTime - cdData.castTime) < INNERVATE_CD then
                     pcall(PlaySound, 5274) -- SoundKit.ReadyCheck safely wrapped
                 end
-                InnervateTrackerDB.activeCDs[name] = nil
+                if not isArchiveView then
+                    InnervateTrackerDB.activeCDs[name] = nil
+                end
             end
             row.bar:Hide()
             if row.lastBarPhase ~= "ready" then
@@ -860,6 +1087,11 @@ local function InitDB()
     if not InnervateTrackerDB.activeCDs then InnervateTrackerDB.activeCDs = {} end
     if not InnervateTrackerDB.roles then InnervateTrackerDB.roles = {} end
     if not InnervateTrackerDB.castLog then InnervateTrackerDB.castLog = {} end
+    if type(InnervateTrackerDB.archives) ~= "table" then InnervateTrackerDB.archives = {} end
+    -- Keep old SavedVariables files from growing without bound after upgrades.
+    while #InnervateTrackerDB.archives > MAX_ARCHIVED_SESSIONS do
+        table.remove(InnervateTrackerDB.archives)
+    end
     if InnervateTrackerDB.soundAlert == nil then InnervateTrackerDB.soundAlert = true end
 
     -- Restore saved marked (highlighted) Druids across /reload and relogs
@@ -899,7 +1131,7 @@ local function InitDB()
     UpdateDisplay()
 end
 
-SLASH_INVERNATETRACKER1 = "/it"
+SLASH_INNERVATETRACKER1 = "/it"
 SlashCmdList["INVERNATETRACKER"] = function(msg)
     if msg == "reset" then
         ResetData()

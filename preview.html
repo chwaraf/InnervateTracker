@@ -99,6 +99,8 @@
     text-shadow: 1px 1px 1px #000, -1px -1px 1px #000;
     flex-grow: 1;
     margin-left: 6px;
+    white-space: nowrap;
+    overflow: hidden;
   }
 
   /* Rows Container */
@@ -400,7 +402,8 @@
       <div id="headerBar" class="tracker-header">
         <button id="growBtn" class="btn-wow" title="Toggle growth direction">v</button>
         <div id="sessionTitle" class="session-title">S: 0m</div>
-        <button id="resetBtn" class="btn-wow" title="Reset stats">R</button>
+        <button id="archiveBtn" class="btn-wow" title="N — current session; click to cycle history">N</button>
+        <button id="resetBtn" class="btn-wow" title="Left-click reset; right-click archive with confirmation">R</button>
       </div>
       <div id="rowsContainer" class="rows-container">
         <!-- Druid rows injected dynamically -->
@@ -433,7 +436,9 @@
       <button class="cmd-btn" onclick="pressKeybind(3)">⌨️ F11 (Slot 3 - Green)</button>
       <button class="cmd-btn" onclick="toggleGrow()">⬆️/⬇️ Toggle Growth (^ / v)</button>
       <button class="cmd-btn" onclick="toggleGroupState()">🚪 Toggle Group State</button>
-      <button class="cmd-btn" onclick="resetStats()">🧹 Reset Session [R]</button>
+      <button class="cmd-btn" onclick="cycleArchiveView()">🗂️ Cycle History [N/H]</button>
+      <button class="cmd-btn" onclick="resetStats()">🧹 Left-click R: Reset Session</button>
+      <button class="cmd-btn" onclick="archiveCurrentSession()">💾 Right-click R: Archive (confirm)</button>
     </div>
 
     <div id="logBox" class="log-box">> Simulator active. All features (30yd spell range check, 65% crisp fade, 0% text wrap, role icons, 3-slot highlights) updated!</div>
@@ -448,11 +453,14 @@
     history: {
       'Malfurion': { 'PriestA': 1 }
     },
-    activeCDs: {}
+    activeCDs: {},
+    archives: []
   };
 
   const INNERVATE_CD = 360;      // 6 min
   const INNERVATE_BUFF_DUR = 20; // 20s
+  const MAX_ARCHIVED_SESSIONS = 20;
+  let archiveViewIndex = 0; // 0 = current session; 1..n = newest archived sessions
 
   let druidsData = {
     'Elune': { role: 'HEALER', inRange: true, isDead: false, isOffline: false, isAbsent: false },
@@ -512,12 +520,28 @@
     box.scrollTop = box.scrollHeight;
   }
 
-  function getSessionTimeStr() {
-    const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - db.startTime);
+  function getDisplayDb() {
+    if (archiveViewIndex > 0 && db.archives[archiveViewIndex - 1]) {
+      return db.archives[archiveViewIndex - 1];
+    }
+    return db;
+  }
+
+  function formatArchiveDate(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const pad = value => String(value).padStart(2, '0');
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${String(date.getFullYear()).slice(-2)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function getSessionTimeStr(displayDb, isArchive) {
+    if (isArchive) {
+      return formatArchiveDate(displayDb.savedAt || displayDb.endTime);
+    }
+    const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - displayDb.startTime);
     const mins = Math.floor(elapsed / 60);
     const hrs = Math.floor(mins / 60);
-    if (hrs > 0) return `S: ${hrs}h${mins % 60}m`;
-    return `S: ${mins}m`;
+    const duration = hrs > 0 ? `${hrs}h${mins % 60}m` : `${mins}m`;
+    return `S: ${duration}`;
   }
 
   function getSlotIndex(druid) {
@@ -526,7 +550,13 @@
   }
 
   function renderTracker() {
-    document.getElementById('sessionTitle').innerText = getSessionTimeStr();
+    const isArchiveView = archiveViewIndex > 0;
+    const displayDb = getDisplayDb();
+    document.getElementById('sessionTitle').innerText = getSessionTimeStr(displayDb, isArchiveView);
+    document.getElementById('archiveBtn').innerText = isArchiveView ? 'H' : 'N';
+    document.getElementById('archiveBtn').title = isArchiveView
+      ? `H — history #${archiveViewIndex}: ${formatArchiveDate(displayDb.savedAt || displayDb.endTime)}. Click to rotate; timers are frozen at session end.`
+      : 'N — current live session. Click to open the newest archived history snapshot.';
     document.getElementById('growBtn').innerText = db.growUp ? '^' : 'v';
 
     trackerFrame.className = db.growUp ? 'grow-up' : '';
@@ -534,25 +564,33 @@
     const container = document.getElementById('rowsContainer');
     container.className = 'rows-container' + (db.growUp ? ' grow-up' : '');
 
-    let druidSet = new Set(Object.keys(druidsData));
-    Object.keys(db.casts).forEach(d => druidSet.add(d));
-    Object.keys(db.activeCDs).forEach(d => druidSet.add(d));
+    let druidSet = new Set();
+    // The live view includes the current roster; a T history view contains only
+    // druids represented by that archived snapshot.
+    if (!isArchiveView) Object.keys(druidsData).forEach(d => druidSet.add(d));
+    Object.keys(displayDb.casts || {}).forEach(d => druidSet.add(d));
+    Object.keys(displayDb.activeCDs || {}).forEach(d => druidSet.add(d));
+    Object.keys(displayDb.history || {}).forEach(d => druidSet.add(d));
 
     const sortedDruids = Array.from(druidSet).sort();
     const now = Math.floor(Date.now() / 1000);
+    // Historical cooldowns are evaluated at the archived session end, not today.
+    const displayNow = isArchiveView ? (displayDb.endTime || displayDb.savedAt || now) : now;
 
     container.innerHTML = '';
 
     sortedDruids.forEach(druid => {
-      const casts = db.casts[druid] || 0;
-      const cdData = db.activeCDs[druid];
-      const elapsed = cdData ? (now - cdData.castTime) : 9999;
+      const casts = (displayDb.casts && displayDb.casts[druid]) || 0;
+      const cdData = displayDb.activeCDs && displayDb.activeCDs[druid];
+      const elapsed = cdData ? (displayNow - cdData.castTime) : 9999;
       const remBuff = INNERVATE_BUFF_DUR - elapsed;
       const remCD = INNERVATE_CD - elapsed;
 
-      const dState = druidsData[druid] || { role: 'HEALER', inRange: true, isDead: false, isOffline: false, isAbsent: false };
-      const isAbsent = dState.isAbsent || !isInGroup;
-      const slotIdx = getSlotIndex(druid);
+      const dState = isArchiveView
+        ? { role: (displayDb.roles && displayDb.roles[druid]) || 'HEALER', inRange: true, isDead: false, isOffline: false, isAbsent: false }
+        : (druidsData[druid] || { role: 'HEALER', inRange: true, isDead: false, isOffline: false, isAbsent: false });
+      const isAbsent = isArchiveView ? false : (dState.isAbsent || !isInGroup);
+      const slotIdx = isArchiveView ? null : getSlotIndex(druid);
       const roleIcon = getRoleIcon(dState.role);
 
       let rowClass = 'druid-row';
@@ -586,7 +624,7 @@
           </div>
         `;
       } else {
-        if (cdData) delete db.activeCDs[druid];
+        if (cdData && !isArchiveView) delete db.activeCDs[druid];
         statusHtml = `<div class="status-ready">Ready</div>`;
       }
 
@@ -615,6 +653,10 @@
 
       // Mouse click handlers
       row.addEventListener('mouseup', (e) => {
+        if (isArchiveView) {
+          log('Archived sessions are read-only. Click H to return to the current session.');
+          return;
+        }
         if (e.button === 0) {
           // Left Click
           const existingIdx = selectedDruids.indexOf(druid);
@@ -731,10 +773,12 @@
 
   function showTooltip(druid, e) {
     const tt = document.getElementById('gameTooltip');
-    const casts = db.casts[druid] || 0;
-    const cdData = db.activeCDs[druid];
-    const history = db.history[druid] || {};
-    const slotIdx = getSlotIndex(druid);
+    const isArchiveView = archiveViewIndex > 0;
+    const displayDb = getDisplayDb();
+    const casts = (displayDb.casts && displayDb.casts[druid]) || 0;
+    const cdData = displayDb.activeCDs && displayDb.activeCDs[druid];
+    const history = (displayDb.history && displayDb.history[druid]) || {};
+    const slotIdx = isArchiveView ? null : getSlotIndex(druid);
 
     document.getElementById('ttTitle').innerText = `${druid} (Casts: ${casts})`;
     
@@ -742,7 +786,10 @@
     const bindKeys = ['F9', 'F10', 'F11'];
     const colors = ['#ffd100', '#1eb3ff', '#30ff30'];
 
-    if (slotIdx) {
+    if (isArchiveView) {
+      subEl.innerText = `Archived session #${archiveViewIndex} (read-only) — click H to return`;
+      subEl.style.color = '#ffd100';
+    } else if (slotIdx) {
       subEl.innerText = `★ Highlighted Slot #${slotIdx} (Press ${bindKeys[slotIdx - 1]} or Right-click)`;
       subEl.style.color = colors[slotIdx - 1];
     } else {
@@ -833,12 +880,51 @@
     db.activeCDs = {};
     db.startTime = Math.floor(Date.now() / 1000);
     selectedDruids = [];
+    archiveViewIndex = 0;
     log('Stats and session time reset.');
+    renderTracker();
+  }
+
+  function archiveCurrentSession() {
+    const hasData = Object.keys(db.casts).length || Object.keys(db.history).length || Object.keys(db.activeCDs).length;
+    if (!hasData) {
+      log('Nothing to archive in the current session.');
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const snapshot = JSON.parse(JSON.stringify({
+      version: 1,
+      savedAt: now,
+      startTime: db.startTime,
+      endTime: now,
+      casts: db.casts,
+      history: db.history,
+      activeCDs: db.activeCDs,
+      roles: Object.fromEntries(Object.entries(druidsData).map(([name, state]) => [name, state.role]))
+    }));
+    db.archives.unshift(snapshot);
+    if (db.archives.length > MAX_ARCHIVED_SESSIONS) db.archives.length = MAX_ARCHIVED_SESSIONS;
+
+    resetStats();
+    log(`Session archived as history #1 and reset.`);
+  }
+
+  function cycleArchiveView() {
+    if (!db.archives.length) return;
+    archiveViewIndex = archiveViewIndex >= db.archives.length ? 0 : archiveViewIndex + 1;
     renderTracker();
   }
 
   // Event Listeners
   document.getElementById('resetBtn').addEventListener('click', resetStats);
+  document.getElementById('resetBtn').addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    if (window.confirm('Archive this Innervate session and reset the live counters?')) {
+      archiveCurrentSession();
+    }
+  });
+  document.getElementById('archiveBtn').addEventListener('click', cycleArchiveView);
   document.getElementById('growBtn').addEventListener('click', toggleGrow);
 
   // Timer tick
